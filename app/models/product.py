@@ -52,7 +52,9 @@ class Product(Base):
     title_en = Column(String(255), nullable=True) # For English search/SEO
     description = Column(Text, nullable=True)
     status = Column(Enum(ProductStatus), default=ProductStatus.DRAFT, nullable=False)
-    
+    average_rating = Column(Numeric(3, 2), default=5.00, nullable=False) # Defaults to 5.00
+    review_count = Column(Integer, default=0, nullable=False)
+
     category_id = Column(Integer, ForeignKey("categories.id"), nullable=True)
     brand_id = Column(Integer, ForeignKey("brands.id"), nullable=True)
     

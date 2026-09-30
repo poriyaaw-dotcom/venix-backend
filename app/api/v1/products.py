@@ -53,7 +53,7 @@ def get_products(
             variant_responses.append(ProductVariantResponse(
                 id=variant.id,
                 sku=variant.sku,
-                stock_quantity=variant.stock_quantity if can_see_stock else None, # Enforced here
+                stock_quantity=variant.stock_quantity if can_see_stock else None,
                 final_price=final_price,
                 attributes=attrs
             ))
@@ -71,6 +71,86 @@ def get_products(
         
     return response_products
 
+
+# ✅ SPECIFIC ROUTE: Must come BEFORE the dynamic /{product_id} route
+@router.get("/search", response_model=List[ProductResponse])
+def search_products(
+    q: str = Query(..., min_length=1, description="Search query (Persian or English)"),
+    sort_by: str = Query(default="newest", description="Sort by: newest, price_asc, price_desc, most_bought"),
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Advanced search with Persian/English partial matching and sorting."""
+    group_str = getattr(current_user, "customer_group", "visitor")
+    try:
+        customer_group = CustomerGroup(group_str)
+    except ValueError:
+        customer_group = CustomerGroup.VISITOR
+
+    # Case-insensitive partial match for both Persian and English titles
+    search_pattern = f"%{q}%"
+    query = db.query(Product).filter(
+        Product.status == ProductStatus.ACTIVE,
+        (Product.title.ilike(search_pattern) | Product.title_en.ilike(search_pattern))
+    )
+
+    # Apply sorting
+    if sort_by == "most_bought":
+        query = query.order_by(Product.sold_count.desc())
+    elif sort_by == "newest":
+        query = query.order_by(Product.created_at.desc())
+
+    # Eager load relationships
+    products = query.options(
+        joinedload(Product.category),
+        joinedload(Product.brand),
+        joinedload(Product.variants)
+        .joinedload(ProductVariant.attribute_mappings)
+        .joinedload(VariantAttributeMapping.attribute_value)
+        .joinedload(ProductAttributeValue.attribute)
+    ).all()
+
+    response_products = []
+    can_see_stock = (customer_group == CustomerGroup.WHOLESALE)
+
+    for product in products:
+        variant_responses = []
+        for variant in product.variants:
+            final_price = calculate_final_price(variant, customer_group)
+            
+            # FIXED: Using the Pydantic model properly to include the 'id'
+            attrs = [
+                ProductAttributeValueResponse(
+                    id=m.attribute_value.id,
+                    name=m.attribute_value.attribute.name,
+                    value=m.attribute_value.value
+                ) 
+                for m in variant.attribute_mappings
+            ]
+            
+            variant_responses.append(ProductVariantResponse(
+                id=variant.id,
+                sku=variant.sku,
+                stock_quantity=variant.stock_quantity if can_see_stock else None,
+                final_price=final_price,
+                attributes=attrs
+            ))
+            
+        response_products.append(ProductResponse(
+            id=product.id,
+            title=product.title,
+            title_en=product.title_en,
+            description=product.description,
+            status=product.status.value,
+            category_name=product.category.name if product.category else None,
+            brand_name=product.brand.name if product.brand else None,
+            variants=variant_responses
+        ))
+        
+    return response_products
+
+
+# ✅ DYNAMIC ROUTE: Must come LAST
 @router.get("/{product_id}", response_model=ProductResponse)
 def get_product(
     product_id: int,
@@ -111,7 +191,7 @@ def get_product(
         variant_responses.append(ProductVariantResponse(
             id=variant.id,
             sku=variant.sku,
-            stock_quantity=variant.stock_quantity if can_see_stock else None, # Enforced here
+            stock_quantity=variant.stock_quantity if can_see_stock else None,
             final_price=final_price,
             attributes=attrs
         ))
