@@ -2,6 +2,7 @@
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from app.api.v1.admin import router as admin_router
 from app.core.config import get_settings
 
 # Routers
@@ -33,6 +34,7 @@ app.include_router(checkout_router)
 app.include_router(payments_router)
 app.include_router(reviews_router)
 app.include_router(favorites_router) # <-- Added this!
+app.include_router(admin_router)
 
 @app.get("/")
 async def root():

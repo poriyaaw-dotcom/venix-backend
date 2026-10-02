@@ -1,9 +1,11 @@
 # app/api/v1/payments.py
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.schemas.payment import PaymentInitiateRequest, PaymentVerifyRequest, PaymentResponse
 from app.services import payment_service
+from app.services.notification_service import trigger_order_notifications
+from app.models.order import Order
 
 router = APIRouter(prefix="/payments", tags=["Payments"])
 
@@ -31,6 +33,7 @@ def initiate_payment_endpoint(
 @router.post("/verify")
 def verify_payment_endpoint(
     payload: PaymentVerifyRequest,
+    background_tasks: BackgroundTasks, # <-- Added this
     db: Session = Depends(get_db)
 ):
     result = payment_service.verify_and_finalize_payment(
@@ -39,6 +42,20 @@ def verify_payment_endpoint(
         payload.transaction_id, 
         payload.idempotency_key
     )
+    
+    # If payment was successful, trigger background notifications
+    if result.get("status") == "success":
+        # Fetch order details to get phone number for SMS
+        order = db.query(Order).filter(Order.id == payload.order_id).first()
+        if order and order.user:
+            trigger_order_notifications(
+                background_tasks=background_tasks,
+                order_id=order.id,
+                total_price=float(order.total_price),
+                customer_phone=order.user.phone_number,
+                customer_email=getattr(order.user, 'email', None) # Will work if you add email to user later
+            )
+            
     return result
 
 # Mock endpoint to simulate the gateway redirecting back to us

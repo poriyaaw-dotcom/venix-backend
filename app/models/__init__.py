@@ -12,3 +12,4 @@ from app.models.order import Order, OrderItem
 from app.models.payment import Payment, PaymentStatus
 from app.models.review import Review
 from app.models.favorite import Favorite # <-- This is the new line!
+from app.models.audit import AuditLog
