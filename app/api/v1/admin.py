@@ -406,15 +406,51 @@ def update_product(
     return {"message": "Product updated successfully", "id": product.id}
 
 @router.delete("/products/{product_id}")
-def delete_product(product_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+def delete_product(
+    product_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    from app.models.product import Product, ProductAttribute, ProductAttributeValue, ProductVariant, VariantAttributeMapping
+    
     product = db.query(Product).filter(Product.id == product_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
-    from sqlalchemy import text
-    db.execute(text(f"DELETE FROM reviews WHERE product_id = {product_id}"))
-    db.delete(product)
-    db.commit()
-    return {"message": "Product deleted permanently"}
+    
+    try:
+        # 1. Explicitly delete variant attribute mappings first
+        db.query(VariantAttributeMapping).filter(
+            VariantAttributeMapping.variant_id.in_(
+                db.query(ProductVariant.id).filter(ProductVariant.product_id == product_id)
+            )
+        ).delete(synchronize_session=False)
+        
+        # 2. Delete variants
+        db.query(ProductVariant).filter(ProductVariant.product_id == product_id).delete(synchronize_session=False)
+        
+        # 3. Delete attribute values
+        db.query(ProductAttributeValue).filter(
+            ProductAttributeValue.attribute_id.in_(
+                db.query(ProductAttribute.id).filter(ProductAttribute.product_id == product_id)
+            )
+        ).delete(synchronize_session=False)
+        
+        # 4. Delete attributes
+        db.query(ProductAttribute).filter(ProductAttribute.product_id == product_id).delete(synchronize_session=False)
+        
+        # 5. Finally, delete the product itself
+        db.delete(product)
+        db.commit()
+        
+        from app.services.audit_service import log_admin_action
+        log_admin_action(db, current_user.id, "DELETE_PRODUCT", "PRODUCT", product_id, "Deleted product and all related data")
+        
+        return {"message": "Product and all related data deleted successfully"}
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error deleting product: {str(e)}")
+
 
 # ==========================================
 # 5. AUDIT LOGS & PARTNER REQUESTS
