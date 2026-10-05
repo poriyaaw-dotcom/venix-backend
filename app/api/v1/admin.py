@@ -9,7 +9,7 @@ from app.core.dependencies import require_admin
 from app.models.user import User
 from app.models.audit import AuditLog
 from app.models.partner_request import PartnerRequest
-from app.models.product import Product, ProductVariant, ProductStatus, Brand
+from app.models.product import Product, ProductVariant, ProductStatus, Brand, Category
 from app.models.order import Order, OrderItem
 from app.services.review_service import approve_review, reject_review
 from app.services.audit_service import log_admin_action
@@ -39,7 +39,24 @@ class OrderStatusUpdateSchema(BaseModel):
     notes: Optional[str] = None
 
 class ProductUpdateSchema(BaseModel):
-    is_active: bool
+    title: Optional[str] = None
+    title_en: Optional[str] = None
+    description: Optional[str] = None
+    image_url: Optional[str] = None
+    brand_id: Optional[int] = None
+    category_id: Optional[int] = None
+    is_active: Optional[bool] = None
+    attributes: Optional[list] = None
+    variants: Optional[list] = None
+    title: Optional[str] = None
+    title_en: Optional[str] = None
+    description: Optional[str] = None
+    image_url: Optional[str] = None
+    brand_id: Optional[int] = None
+    category_id: Optional[int] = None
+    is_active: Optional[bool] = None
+    attributes: Optional[list] = None
+    variants: Optional[list] = None
 
 class ProductCreateSchema(BaseModel):
     title: str
@@ -47,6 +64,13 @@ class ProductCreateSchema(BaseModel):
     description: Optional[str] = None
     image_url: Optional[str] = None
     brand_id: Optional[int] = None
+    category_id: Optional[int] = None
+
+class CategorySchema(BaseModel):
+    id: int
+    name: str
+    class Config:
+        from_attributes = True
 
 class BrandSchema(BaseModel):
     id: int
@@ -184,6 +208,10 @@ def update_order_status(
 # ==========================================
 # 3. BRAND MANAGEMENT
 # ==========================================
+@router.get("/categories", response_model=List[CategorySchema])
+def get_categories(db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    return db.query(Category).all()
+
 @router.get("/brands", response_model=List[BrandSchema])
 def get_brands(db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
     return db.query(Brand).all()
@@ -195,6 +223,19 @@ def create_brand(data: BrandCreateSchema, db: Session = Depends(get_db), current
     db.commit()
     db.refresh(brand)
     return {"id": brand.id, "name": brand.name}
+
+@router.delete("/brands/{brand_id}")
+def delete_brand(brand_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    brand = db.query(Brand).filter(Brand.id == brand_id).first()
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+    
+    # Safely unlink products from this brand so the database doesn't crash
+    db.query(Product).filter(Product.brand_id == brand_id).update({"brand_id": None})
+    
+    db.delete(brand)
+    db.commit()
+    return {"message": "Brand deleted successfully"}
 
 # ==========================================
 # 4. ADMIN PRODUCT MANAGEMENT
@@ -210,6 +251,7 @@ def create_product(
         title_en=data.title_en,
         description=data.description,
         brand_id=data.brand_id,
+        category_id=data.category_id,
         status=ProductStatus.ACTIVE,
         is_active=True
     )
@@ -236,33 +278,143 @@ def get_admin_products(
         for p in products
     ]
 
+
+@router.get("/products/{product_id}")
+def get_admin_product_details(
+    product_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    from sqlalchemy.orm import joinedload
+    from app.models.product import ProductAttribute, ProductVariant, VariantAttributeMapping
+    
+    product = db.query(Product).options(
+        joinedload(Product.attributes).joinedload(ProductAttribute.values),
+        joinedload(Product.variants).joinedload(ProductVariant.attribute_mappings)
+    ).filter(Product.id == product_id).first()
+    
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    return {
+        "id": product.id,
+        "title": product.title,
+        "title_en": product.title_en or "",
+        "description": product.description or "",
+        "image_url": product.image_url or "",
+        "brand_id": product.brand_id,
+        "category_id": product.category_id,
+        "attributes": [
+            {
+                "id": attr.id,
+                "name": attr.name,
+                "values": [val.value for val in attr.values]
+            }
+            for attr in product.attributes
+        ],
+        "variants": [
+            {
+                "id": var.id,
+                "sku": var.sku or "",
+                "price": float(var.price_normal) if var.price_normal else 0,
+                "stock_quantity": var.stock_quantity or 0,
+                "selectedValueIds": [mapping.attribute_value_id for mapping in var.attribute_mappings]
+            }
+            for var in product.variants
+        ]
+    }
+
+
+
 @router.put("/products/{product_id}")
-def update_product_status(
+def update_product(
     product_id: int,
     update_data: ProductUpdateSchema,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
 ):
+    from app.models.product import ProductAttribute, ProductAttributeValue, ProductVariant, VariantAttributeMapping
+    import time
+
     product = db.query(Product).filter(Product.id == product_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
     
-    product.is_active = update_data.is_active
-    if not update_data.is_active:
-        product.status = ProductStatus.HIDDEN
+    # 1. Update basic info
+    if update_data.title is not None: product.title = update_data.title
+    if update_data.title_en is not None: product.title_en = update_data.title_en
+    if update_data.description is not None: product.description = update_data.description
+    if update_data.image_url is not None: product.image_url = update_data.image_url
+    if update_data.brand_id is not None: product.brand_id = update_data.brand_id
+    if update_data.category_id is not None: product.category_id = update_data.category_id
     
+    if update_data.is_active is not None:
+        product.is_active = update_data.is_active
+        product.status = ProductStatus.HIDDEN if not update_data.is_active else ProductStatus.ACTIVE
+        
     db.commit()
-    log_admin_action(db, current_user.id, "UPDATE_PRODUCT_STATUS", "PRODUCT", product_id, f"Set is_active to {update_data.is_active}")
-    return {"message": "Product status updated", "is_active": product.is_active}
+    
+    # 2. Overwrite attributes and variants if provided
+    if update_data.attributes is not None or update_data.variants is not None:
+        # Delete old mappings and variants
+        db.query(VariantAttributeMapping).filter(VariantAttributeMapping.variant_id.in_(
+            db.query(ProductVariant.id).filter(ProductVariant.product_id == product_id)
+        )).delete(synchronize_session=False)
+        db.query(ProductVariant).filter(ProductVariant.product_id == product_id).delete(synchronize_session=False)
+        
+        # Delete old attributes and values
+        db.query(ProductAttributeValue).filter(ProductAttributeValue.attribute_id.in_(
+            db.query(ProductAttribute.id).filter(ProductAttribute.product_id == product_id)
+        )).delete(synchronize_session=False)
+        db.query(ProductAttribute).filter(ProductAttribute.product_id == product_id).delete(synchronize_session=False)
+        db.commit()
+        
+        # Create new attributes
+        if update_data.attributes:
+            for attr_data in update_data.attributes:
+                if not attr_data.get("name"): continue
+                attr = ProductAttribute(product_id=product_id, name=attr_data["name"])
+                db.add(attr)
+                db.flush()
+                for val in attr_data.get("values", []):
+                    if val:
+                        db.add(ProductAttributeValue(attribute_id=attr.id, value=str(val)))
+        
+        # Create new variants
+        if update_data.variants:
+            for var_data in update_data.variants:
+                if not var_data.get("price") and not var_data.get("stock_quantity"): continue
+                variant = ProductVariant(
+                    product_id=product_id,
+                    sku=var_data.get("sku") or f"VAR-{product_id}-{int(time.time())}",
+                    purchase_cost=float(var_data.get("price", 0)),
+                    price_normal=float(var_data.get("price", 0)),
+                    price_visitor=float(var_data.get("price", 0)),
+                    price_shop_owner=float(var_data.get("price", 0)),
+                    price_wholesale=float(var_data.get("price", 0)),
+                    stock_quantity=int(var_data.get("stock_quantity", 0))
+                )
+                db.add(variant)
+                db.flush()
+                for val_id in var_data.get("selectedValueIds", []):
+                    try:
+                        db.add(VariantAttributeMapping(variant_id=variant.id, attribute_value_id=int(val_id)))
+                    except (ValueError, TypeError):
+                        pass
+        db.commit()
+        
+    return {"message": "Product updated successfully", "id": product.id}
 
 @router.delete("/products/{product_id}")
 def delete_product(product_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
     product = db.query(Product).filter(Product.id == product_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
+    from sqlalchemy import text
+    db.execute(text(f"DELETE FROM reviews WHERE product_id = {product_id}"))
     db.delete(product)
     db.commit()
-    return {"message": "Product deleted successfully"}
+    return {"message": "Product deleted permanently"}
 
 # ==========================================
 # 5. AUDIT LOGS & PARTNER REQUESTS
@@ -298,3 +450,22 @@ def reject_partner_request(request_id: int, db: Session = Depends(get_db), curre
         db.commit()
         log_admin_action(db, current_user.id, "REJECT_PARTNER", "PARTNER_REQUEST", request_id, "Rejected partner request")
     return {"message": "Request rejected."}
+class CategoryCreateSchema(BaseModel):
+    name: str
+
+@router.post("/categories")
+def create_category(data: CategoryCreateSchema, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    cat = Category(name=data.name, slug=data.name.lower().replace(" ", "-"), is_landing_category=1)
+    db.add(cat)
+    db.commit()
+    db.refresh(cat)
+    return {"id": cat.id, "name": cat.name}
+
+@router.delete("/categories/{category_id}")
+def delete_category(category_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    cat = db.query(Category).filter(Category.id == category_id).first()
+    if not cat: raise HTTPException(status_code=404, detail="Category not found")
+    db.query(Product).filter(Product.category_id == category_id).update({"category_id": None})
+    db.delete(cat)
+    db.commit()
+    return {"message": "Category deleted successfully"}

@@ -114,6 +114,10 @@ def create_product_variant(
         product_id=product_id,
         sku=variant_data.sku,
         purchase_cost=variant_data.purchase_cost,
+        price_normal=getattr(variant_data, 'price_normal', None) or variant_data.purchase_cost,
+        price_visitor=getattr(variant_data, 'price_visitor', None) or variant_data.purchase_cost,
+        price_shop_owner=getattr(variant_data, 'price_shop_owner', None) or variant_data.purchase_cost,
+        price_wholesale=getattr(variant_data, 'price_wholesale', None) or variant_data.purchase_cost,
         stock_quantity=variant_data.stock_quantity
     )
     db.add(variant)

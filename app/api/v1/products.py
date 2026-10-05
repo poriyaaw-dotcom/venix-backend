@@ -13,6 +13,13 @@ from app.services.pricing_service import calculate_final_price
 
 router = APIRouter(prefix="/products", tags=["Products"])
 
+@router.get("/categories")
+def get_public_categories(db: Session = Depends(get_db)):
+    from app.models.product import Category
+    categories = db.query(Category).filter(Category.is_landing_category == 1).all()
+    return [{"id": c.id, "name": c.name, "slug": c.slug} for c in categories]
+
+
 @router.get("/", response_model=List[ProductResponse])
 def get_products(
     db: Session = Depends(get_db),
@@ -32,7 +39,7 @@ def get_products(
         .joinedload(ProductVariant.attribute_mappings)
         .joinedload(VariantAttributeMapping.attribute_value)
         .joinedload(ProductAttributeValue.attribute)
-    ).filter(Product.status == ProductStatus(status_filter)).all()
+    ).filter(Product.status == ProductStatus(status_filter), Product.is_active == True).all()
 
     response_products = []
     can_see_stock = (customer_group == CustomerGroup.WHOLESALE)
@@ -91,6 +98,7 @@ def search_products(
     search_pattern = f"%{q}%"
     query = db.query(Product).filter(
         Product.status == ProductStatus.ACTIVE,
+        Product.is_active == True,
         (Product.title.ilike(search_pattern) | Product.title_en.ilike(search_pattern))
     )
 
@@ -170,7 +178,7 @@ def get_product(
         .joinedload(ProductVariant.attribute_mappings)
         .joinedload(VariantAttributeMapping.attribute_value)
         .joinedload(ProductAttributeValue.attribute)
-    ).filter(Product.id == product_id).first()
+    ).filter(Product.id == product_id, Product.is_active == True).first()
 
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
@@ -206,3 +214,9 @@ def get_product(
         brand_name=product.brand.name if product.brand else None,
         variants=variant_responses
     )
+
+@router.get("/categories")
+def get_public_categories(db: Session = Depends(get_db)):
+    from app.models.product import Category
+    categories = db.query(Category).filter(Category.is_landing_category == 1).all()
+    return [{"id": c.id, "name": c.name, "slug": c.slug} for c in categories]
