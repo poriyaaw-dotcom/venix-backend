@@ -75,7 +75,7 @@ def get_products(
 # ✅ SPECIFIC ROUTE: Must come BEFORE the dynamic /{product_id} route
 @router.get("/search", response_model=List[ProductResponse])
 def search_products(
-    q: str = Query(..., min_length=1, description="Search query (Persian or English)"),
+    q: str = Query(..., min_length=0, description="Search query (Persian or English)"),
     sort_by: str = Query(default="newest", description="Sort by: newest, price_asc, price_desc, most_bought"),
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)

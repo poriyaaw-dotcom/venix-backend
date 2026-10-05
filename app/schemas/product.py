@@ -3,6 +3,10 @@ from pydantic import BaseModel
 from typing import List, Optional
 from decimal import Decimal
 
+# ==========================================
+# 1. Existing Schemas (Used by products.py)
+# ==========================================
+
 class ProductAttributeValueResponse(BaseModel):
     id: int
     name: str
@@ -16,7 +20,6 @@ class ProductVariantResponse(BaseModel):
     sku: Optional[str]
     stock_quantity: Optional[int] = None # Hidden from non-wholesale users
     final_price: Decimal
-    
     attributes: List[ProductAttributeValueResponse] = []
 
     class Config:
@@ -32,5 +35,46 @@ class ProductResponse(BaseModel):
     brand_name: Optional[str]
     variants: List[ProductVariantResponse]
 
+    class Config:
+        from_attributes = True
+
+
+# ==========================================
+# 2. New Admin Schemas (Used by admin_products.py)
+# ==========================================
+
+class ProductAttributeCreate(BaseModel):
+    name: str
+
+class ProductAttributeValueCreate(BaseModel):
+    value: str
+
+class AdminProductAttributeValueResponse(BaseModel):
+    id: int
+    value: str
+    
+    class Config:
+        from_attributes = True
+
+class AdminProductAttributeResponse(BaseModel):
+    id: int
+    name: str
+    values: List[AdminProductAttributeValueResponse] = []
+    
+    class Config:
+        from_attributes = True
+
+class ProductVariantCreate(BaseModel):
+    sku: Optional[str] = None
+    purchase_cost: Decimal
+    stock_quantity: int = 0
+    attribute_value_ids: Optional[List[int]] = None
+
+class AdminProductVariantResponse(BaseModel):
+    id: int
+    sku: Optional[str]
+    purchase_cost: Decimal
+    stock_quantity: int
+    
     class Config:
         from_attributes = True

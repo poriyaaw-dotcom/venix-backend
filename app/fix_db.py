@@ -1,19 +1,19 @@
-import sys
-import os
+# fix_db.py
+from sqlalchemy import create_engine, text
+from app.core.config import get_settings
 
-# This ensures Python can find your 'app' folder no matter where you run it from
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# This grabs your database password and name automatically from your config
+settings = get_settings()
+engine = create_engine(settings.DATABASE_URL, isolation_level="AUTOCOMMIT")
 
-from app.db.session import engine
-from sqlalchemy import text
-
-print("🔧 Fixing missing database columns...")
-
-with engine.begin() as conn:
-    # Force add sold_count to products
-    conn.execute(text("ALTER TABLE products ADD COLUMN IF NOT EXISTS sold_count INTEGER DEFAULT 0;"))
-    
-    # Force add is_admin to users
-    conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE;"))
-
-print("✅ Database fixed successfully! You can now delete this file.")
+print("🔧 Connecting to database and fixing ENUMs...")
+try:
+    with engine.connect() as conn:
+        # These commands add the missing options to your database
+        conn.execute(text("ALTER TYPE customergroup ADD VALUE IF NOT EXISTS 'NORMAL';"))
+        conn.execute(text("ALTER TYPE customergroup ADD VALUE IF NOT EXISTS 'VISITOR';"))
+        conn.execute(text("ALTER TYPE customergroup ADD VALUE IF NOT EXISTS 'WHOLESALE';"))
+        conn.execute(text("ALTER TYPE customergroup ADD VALUE IF NOT EXISTS 'SHOP_OWNER';"))
+    print("✅ Database fixed successfully! You can now log in.")
+except Exception as e:
+    print(f"❌ Error: {e}")

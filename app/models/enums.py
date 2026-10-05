@@ -2,17 +2,16 @@
 import enum
 
 class CustomerGroup(str, enum.Enum):
-    VISITOR = "visitor"
-    NORMAL_USER = "normal_user"
-    WHOLESALE = "wholesale"
-    SHOP_OWNER = "shop_owner"
+    NORMAL = "NORMAL"
+    VISITOR = "VISITOR"
+    WHOLESALE = "WHOLESALE"
+    SHOP_OWNER = "SHOP_OWNER"
 
 class ProductStatus(str, enum.Enum):
     ACTIVE = "active"
     DRAFT = "draft"
     HIDDEN = "hidden"
     OUT_OF_STOCK = "out_of_stock"
-
 
 class OrderStatus(str, enum.Enum):
     PENDING_PAYMENT = "pending_payment"
