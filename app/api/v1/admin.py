@@ -189,21 +189,52 @@ def update_order_status(
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     
-    valid_statuses = ["pending_payment", "paid", "processing", "delivered", "completed", "cancelled", "refunded"]
-    if status_data.status not in valid_statuses:
-        raise HTTPException(status_code=400, detail="Invalid status")
-    
     old_status = order.status.value if hasattr(order.status, 'value') else str(order.status)
-    order.status = status_data.status
+    new_status = status_data.status
+    
+    # 1. Strict State Machine Validation
+    valid_transitions = {
+        "pending_payment": ["paid", "cancelled"],
+        "paid": ["processing", "cancelled", "refunded"],
+        "processing": ["delivered", "cancelled", "refunded"],
+        "delivered": ["completed", "refunded"],
+        "completed": ["refunded"],
+        "cancelled": [],
+        "refunded": []
+    }
+    
+    if new_status not in valid_transitions.get(old_status, []):
+        raise HTTPException(
+            status_code=400, 
+            detail=f"انتقال وضعیت نامعتبر است. نمی‌توان وضعیت را از '{old_status}' به '{new_status}' تغییر داد."
+        )
+    
+    # 2. Inventory Restoration Logic (Refund / Cancellation of paid orders)
+    if new_status in ["cancelled", "refunded"] and old_status in ["paid", "processing", "delivered", "completed"]:
+        order_items = db.query(OrderItem).filter(OrderItem.order_id == order_id).all()
+        for item in order_items:
+            if item.variant:
+                item.variant.stock_quantity += item.quantity
+                
+    # 3. Update Status
+    order.status = new_status
+    
+    # Clear reservation if cancelled or refunded
+    if new_status in ["cancelled", "refunded"]:
+        order.reserved_until = None
+        
     db.commit()
     db.refresh(order)
     
     log_admin_action(
         db, current_user.id, "UPDATE_ORDER_STATUS", "ORDER", order_id,
-        f"Status changed from {old_status} to {status_data.status}. Notes: {status_data.notes or 'None'}"
+        f"Status changed from {old_status} to {new_status}. Notes: {status_data.notes or 'None'}"
     )
     
-    return {"message": "Order status updated successfully", "status": order.status.value if hasattr(order.status, 'value') else str(order.status)}
+    return {
+        "message": "وضعیت سفارش با موفقیت بروزرسانی شد", 
+        "status": order.status.value if hasattr(order.status, 'value') else str(order.status)
+    }
 
 # ==========================================
 # 3. BRAND MANAGEMENT
