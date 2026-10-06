@@ -9,6 +9,7 @@ from app.models.bank_info import BankInfo
 from app.models.order import Order
 from app.models.user import User
 from app.core.dependencies import get_current_user, require_admin
+from app.services.sms_service import send_purchase_sms
 
 router = APIRouter(prefix="/payment", tags=["Payment"])
 
@@ -34,10 +35,8 @@ class TrackingNumberSchema(BaseModel):
 # --- Public Endpoints ---
 @router.get("/bank-info", response_model=BankInfoResponse)
 def get_public_bank_info(db: Session = Depends(get_db)):
-    # Get the first active bank info
     info = db.query(BankInfo).filter(BankInfo.is_active == True).first()
     if not info:
-        # Fallback if admin hasn't set it up yet
         return BankInfoResponse(
             bank_name="بانک قرض الحسنه رسالت",
             account_holder_name="سید امیرعلی موسوی",
@@ -58,8 +57,15 @@ def submit_tracking_number(
     
     order.bank_tracking_number = data.tracking_number
     order.paid_at = datetime.now(timezone.utc)
-    # Note: We keep status as 'pending_payment' until admin verifies it, 
-    # or you can change it to 'paid' immediately. Let's keep it pending for admin verification.
+    
+    # Trigger SMS Notification (Mock)
+    try:
+        if order.user and getattr(order.user, 'phone_number', None):
+            send_purchase_sms(order.user.phone_number, order.id, int(order.total_price))
+        else:
+            print("\n⚠️ [MOCK SMS] Skipped: User or phone_number not found on order. ⚠️\n")
+    except Exception as e:
+        print(f"\n⚠️ [MOCK SMS] Error: {e} ⚠️\n")
     
     db.commit()
     return {"message": "شماره پیگیری با موفقیت ثبت شد. منتظر تایید مدیریت باشید."}
@@ -84,10 +90,8 @@ def update_bank_info(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
 ):
-    # Deactivate all old ones
     db.query(BankInfo).update({"is_active": False})
     
-    # Create new one
     new_info = BankInfo(
         bank_name=data.bank_name,
         account_holder_name=data.account_holder_name,
