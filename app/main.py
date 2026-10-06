@@ -1,7 +1,9 @@
 # app/main.py
-
-from fastapi import FastAPI
+import os
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from app.core.config import get_settings
 
 # Routers
@@ -17,17 +19,60 @@ from app.api.v1.admin import router as admin_router
 from app.api.v1.admin_products import router as admin_products_router
 
 settings = get_settings()
-app = FastAPI(title=settings.APP_NAME, version=settings.APP_VERSION, docs_url="/docs")
+
+# ✅ SECURITY: Disable docs in production to prevent endpoint enumeration
+is_prod = os.getenv("ENVIRONMENT") == "production"
+docs_url = None if is_prod else "/docs"
+redoc_url = None if is_prod else "/redoc"
+
+app = FastAPI(
+    title=settings.APP_NAME, 
+    version=settings.APP_VERSION, 
+    docs_url=docs_url,
+    redoc_url=redoc_url
+)
+
+# ✅ SECURITY: Strict CORS Configuration
+# Only allow the specific frontend URL defined in .env
+allowed_origins = [settings.FRONTEND_URL] if getattr(settings, 'FRONTEND_URL', None) else ["http://localhost:5173"]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"], # Restrict methods
+    allow_headers=["Content-Type", "Authorization", "Accept"], # Restrict headers
 )
 
-# ✅ FIX: Added prefix="/api/v1" to ALL v1 routers so the frontend matches perfectly!
+# ✅ SECURITY: Add Security Headers Middleware
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        # Prevent clickjacking
+        response.headers["X-Frame-Options"] = "DENY"
+        # Prevent MIME-type sniffing
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        # Enable XSS filtering
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        # Enforce HTTPS in production
+        if is_prod:
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        return response
+
+app.add_middleware(SecurityHeadersMiddleware)
+
+# ✅ SECURITY: Hide detailed server errors in production
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    if is_prod:
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "یک خطای داخلی در سرور رخ داد. لطفاً دوباره تلاش کنید."}
+        )
+    # In development, let FastAPI handle it normally to show tracebacks
+    raise exc
+
+# Routers
 app.include_router(health_router, prefix="/api/v1", tags=["Health"])
 app.include_router(auth_router, prefix="/api/v1", tags=["Authentication"])
 app.include_router(products_router, prefix="/api/v1", tags=["Products"])

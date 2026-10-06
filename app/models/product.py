@@ -1,4 +1,3 @@
-# app/models/product.py
 from sqlalchemy import Column, Integer, String, Text, Enum, ForeignKey, Numeric, DateTime, Table, Boolean
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -16,7 +15,7 @@ class Category(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False)
     slug = Column(String(100), unique=True, index=True, nullable=False)
-    parent_id = Column(Integer, ForeignKey("categories.id"), nullable=True) # ✅ For infinite sub-groups
+    parent_id = Column(Integer, ForeignKey("categories.id"), nullable=True)
     is_landing_category = Column(Integer, default=0, nullable=False)
     
     parent = relationship("Category", remote_side=[id], backref="children")
@@ -42,6 +41,12 @@ class Product(Base):
     image_url = Column(String(500), nullable=True)
     status = Column(Enum(ProductStatus), default=ProductStatus.ACTIVE, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
+    
+    # ✅ NEW: Added missing columns for sorting and reviews
+    sold_count = Column(Integer, default=0, nullable=False)
+    average_rating = Column(Numeric(3, 2), default=0.00, nullable=False)
+    review_count = Column(Integer, default=0, nullable=False)
+    
     category_id = Column(Integer, ForeignKey("categories.id"), nullable=True)
     brand_id = Column(Integer, ForeignKey("brands.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -74,7 +79,6 @@ class ProductVariant(Base):
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
     sku = Column(String(100), unique=True, nullable=True)
     
-    # ✅ Explicit prices for each customer class
     purchase_cost = Column(Numeric(15, 2), nullable=False)
     price_normal = Column(Numeric(15, 2), nullable=False)
     price_visitor = Column(Numeric(15, 2), nullable=False)

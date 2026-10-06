@@ -1,7 +1,10 @@
+from typing import Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 
 class Settings(BaseSettings):
+    ENVIRONMENT: str = "development"
+    ADMIN_PHONE: Optional[str] = None
     APP_NAME: str = "Venix Shop API"
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = True

@@ -1,6 +1,6 @@
-# app/models/enums.py
 import enum
 
+# ✅ CANONICAL CUSTOMER GROUP
 class CustomerGroup(str, enum.Enum):
     NORMAL = "NORMAL"
     VISITOR = "VISITOR"
@@ -12,6 +12,7 @@ class ProductStatus(str, enum.Enum):
     DRAFT = "draft"
     HIDDEN = "hidden"
     OUT_OF_STOCK = "out_of_stock"
+    ARCHIVED = "archived" # Added for future lifecycle support
 
 class OrderStatus(str, enum.Enum):
     PENDING_PAYMENT = "pending_payment"

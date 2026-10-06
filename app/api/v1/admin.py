@@ -354,53 +354,66 @@ def update_product(
         
     db.commit()
     
-    # 2. Overwrite attributes and variants if provided
+    # 2. Update attributes and variants SAFELY (Non-destructive for ordered items)
     if update_data.attributes is not None or update_data.variants is not None:
-        # Delete old mappings and variants
-        db.query(VariantAttributeMapping).filter(VariantAttributeMapping.variant_id.in_(
-            db.query(ProductVariant.id).filter(ProductVariant.product_id == product_id)
-        )).delete(synchronize_session=False)
-        db.query(ProductVariant).filter(ProductVariant.product_id == product_id).delete(synchronize_session=False)
+        from app.models.order import OrderItem
         
-        # Delete old attributes and values
-        db.query(ProductAttributeValue).filter(ProductAttributeValue.attribute_id.in_(
-            db.query(ProductAttribute.id).filter(ProductAttribute.product_id == product_id)
-        )).delete(synchronize_session=False)
-        db.query(ProductAttribute).filter(ProductAttribute.product_id == product_id).delete(synchronize_session=False)
-        db.commit()
-        
-        # Create new attributes
-        if update_data.attributes:
-            for attr_data in update_data.attributes:
-                if not attr_data.get("name"): continue
-                attr = ProductAttribute(product_id=product_id, name=attr_data["name"])
-                db.add(attr)
-                db.flush()
-                for val in attr_data.get("values", []):
-                    if val:
-                        db.add(ProductAttributeValue(attribute_id=attr.id, value=str(val)))
-        
-        # Create new variants
-        if update_data.variants:
+        if update_data.variants is not None:
+            incoming_variant_ids = [v.get("id") for v in update_data.variants if v.get("id")]
+            
             for var_data in update_data.variants:
-                if not var_data.get("price") and not var_data.get("stock_quantity"): continue
-                variant = ProductVariant(
-                    product_id=product_id,
-                    sku=var_data.get("sku") or f"VAR-{product_id}-{int(time.time())}",
-                    purchase_cost=float(var_data.get("price", 0)),
-                    price_normal=float(var_data.get("price", 0)),
-                    price_visitor=float(var_data.get("price", 0)),
-                    price_shop_owner=float(var_data.get("price", 0)),
-                    price_wholesale=float(var_data.get("price", 0)),
-                    stock_quantity=int(var_data.get("stock_quantity", 0))
-                )
-                db.add(variant)
-                db.flush()
-                for val_id in var_data.get("selectedValueIds", []):
-                    try:
-                        db.add(VariantAttributeMapping(variant_id=variant.id, attribute_value_id=int(val_id)))
-                    except (ValueError, TypeError):
-                        pass
+                if not var_data.get("price") and not var_data.get("stock_quantity"): 
+                    continue
+                
+                var_id = var_data.get("id")
+                if var_id:
+                    # Update existing variant in-place
+                    variant = db.query(ProductVariant).filter(ProductVariant.id == var_id).first()
+                    if variant:
+                        variant.sku = var_data.get("sku") or variant.sku
+                        variant.purchase_cost = float(var_data.get("price", 0))
+                        variant.price_normal = float(var_data.get("price", 0))
+                        variant.price_visitor = float(var_data.get("price", 0))
+                        variant.price_shop_owner = float(var_data.get("price", 0))
+                        variant.price_wholesale = float(var_data.get("price", 0))
+                        variant.stock_quantity = int(var_data.get("stock_quantity", 0))
+                        
+                        # Update mappings safely
+                        db.query(VariantAttributeMapping).filter(VariantAttributeMapping.variant_id == variant.id).delete(synchronize_session=False)
+                        for val_id in var_data.get("selectedValueIds", []):
+                            try:
+                                db.add(VariantAttributeMapping(variant_id=variant.id, attribute_value_id=int(val_id)))
+                            except (ValueError, TypeError):
+                                pass
+                else:
+                    # Create new variant
+                    variant = ProductVariant(
+                        product_id=product_id,
+                        sku=var_data.get("sku") or f"VAR-{product_id}-{int(time.time())}",
+                        purchase_cost=float(var_data.get("price", 0)),
+                        price_normal=float(var_data.get("price", 0)),
+                        price_visitor=float(var_data.get("price", 0)),
+                        price_shop_owner=float(var_data.get("price", 0)),
+                        price_wholesale=float(var_data.get("price", 0)),
+                        stock_quantity=int(var_data.get("stock_quantity", 0))
+                    )
+                    db.add(variant)
+                    db.flush()
+                    for val_id in var_data.get("selectedValueIds", []):
+                        try:
+                            db.add(VariantAttributeMapping(variant_id=variant.id, attribute_value_id=int(val_id)))
+                        except (ValueError, TypeError):
+                            pass
+            
+            # Safe cleanup: Delete variants that are NOT in the incoming list AND have NO orders
+            existing_variants = db.query(ProductVariant).filter(ProductVariant.product_id == product_id).all()
+            for variant in existing_variants:
+                if variant.id not in incoming_variant_ids:
+                    has_orders = db.query(db.query(OrderItem).filter(OrderItem.variant_id == variant.id).exists()).scalar()
+                    if not has_orders:
+                        db.query(VariantAttributeMapping).filter(VariantAttributeMapping.variant_id == variant.id).delete(synchronize_session=False)
+                        db.delete(variant)
+                        
         db.commit()
         
     return {"message": "Product updated successfully", "id": product.id}
@@ -505,3 +518,32 @@ def delete_category(category_id: int, db: Session = Depends(get_db), current_use
     db.delete(cat)
     db.commit()
     return {"message": "Category deleted successfully"}
+
+@router.post("/cleanup-expired-reservations")
+def cleanup_expired_reservations(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    from datetime import datetime, timezone
+    from app.models.order import Order, OrderStatus
+    
+    now = datetime.now(timezone.utc)
+    # Find pending orders whose reservation has expired
+    expired_orders = db.query(Order).filter(
+        Order.status == OrderStatus.PENDING_PAYMENT,
+        Order.reserved_until != None,
+        Order.reserved_until < now
+    ).all()
+    
+    released_count = 0
+    for order in expired_orders:
+        # Release stock
+        for item in order.items:
+            item.variant.stock_quantity += item.quantity
+        
+        order.status = OrderStatus.CANCELLED
+        order.reserved_until = None
+        released_count += 1
+        
+    db.commit()
+    return {"message": f"Successfully cancelled {released_count} expired orders and released inventory."}

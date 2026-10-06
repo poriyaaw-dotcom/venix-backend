@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 # app/services/payment_service.py
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
@@ -67,8 +68,15 @@ def verify_and_finalize_payment(db: Session, order_id: int, transaction_id: str,
 
     if not is_valid:
         payment.status = PaymentStatus.FAILED
+        order.status = OrderStatus.CANCELLED
+        order.reserved_until = None
+        
+        # RELEASE STOCK: Return the reserved items back to inventory
+        for item in order.items:
+            item.variant.stock_quantity += item.quantity
+            
         db.commit()
-        raise HTTPException(status_code=400, detail="Payment verification failed at gateway.")
+        raise HTTPException(status_code=400, detail="Payment verification failed at gateway. Inventory released.")
 
     # 4. Payment is valid! Finalize the order.
     order = db.query(Order).filter(Order.id == order_id).with_for_update().first()
@@ -84,9 +92,8 @@ def verify_and_finalize_payment(db: Session, order_id: int, transaction_id: str,
     for item in order.items:
         item.variant.product.sold_count += item.quantity
 
-    # 6. Safely Deduct Inventory for each item
-    for item in order.items:
-        check_and_deduct_stock(db, item.variant_id, item.quantity)
+    # 6. Reservation is now a permanent sale, clear the expiry
+    order.reserved_until = None
 
     # 7. Commit all changes atomically
     db.commit()

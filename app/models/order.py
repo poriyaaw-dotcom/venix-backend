@@ -22,6 +22,7 @@ class Order(Base):
     # Pricing Snapshot
     total_price = Column(Numeric(15, 2), nullable=False)
     total_items = Column(Integer, nullable=False)
+    reserved_until = Column(DateTime(timezone=True), nullable=True) # For inventory reservation
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

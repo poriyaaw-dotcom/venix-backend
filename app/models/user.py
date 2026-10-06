@@ -1,14 +1,7 @@
-# app/models/user.py
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, Enum
 from sqlalchemy.sql import func
 from app.db.session import Base
-import enum
-
-class CustomerGroup(str, enum.Enum):
-    VISITOR = "visitor"
-    NORMAL = "normal"
-    WHOLESALE = "wholesale"
-    SHOP_OWNER = "shop_owner"
+from app.models.enums import CustomerGroup # ✅ Import from canonical source
 
 class User(Base):
     __tablename__ = "users"
@@ -22,8 +15,9 @@ class User(Base):
     is_verified = Column(Boolean, default=False)
     is_admin = Column(Boolean, default=False)
     
-    # NEW: Customer Group for Pricing
+    # ✅ Use canonical CustomerGroup
     customer_group = Column(Enum(CustomerGroup), default=CustomerGroup.NORMAL, nullable=False)
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+from app.models.otp import OTPRecord

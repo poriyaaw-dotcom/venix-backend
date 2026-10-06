@@ -1,0 +1,2425 @@
+=========================================
+📂 1. BACKEND: app/models/product.py
+=========================================
+# app/models/product.py
+from sqlalchemy import Column, Integer, String, Text, Enum, ForeignKey, Numeric, DateTime, Table, Boolean
+from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
+from app.db.session import Base
+from app.models.enums import ProductStatus
+
+product_tag_association = Table(
+    'product_tag_association', Base.metadata,
+    Column('product_id', Integer, ForeignKey('products.id'), primary_key=True),
+    Column('tag_id', Integer, ForeignKey('tags.id'), primary_key=True)
+)
+
+class Category(Base):
+    __tablename__ = "categories"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False)
+    slug = Column(String(100), unique=True, index=True, nullable=False)
+    parent_id = Column(Integer, ForeignKey("categories.id"), nullable=True) # ✅ For infinite sub-groups
+    is_landing_category = Column(Integer, default=0, nullable=False)
+    
+    parent = relationship("Category", remote_side=[id], backref="children")
+
+class Brand(Base):
+    __tablename__ = "brands"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False)
+    slug = Column(String(100), unique=True, index=True, nullable=False)
+
+class Tag(Base):
+    __tablename__ = "tags"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False)
+    slug = Column(String(100), unique=True, index=True, nullable=False)
+
+class Product(Base):
+    __tablename__ = "products"
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(255), nullable=False)
+    title_en = Column(String(255), nullable=True)
+    description = Column(Text, nullable=True)
+    image_url = Column(String(500), nullable=True)
+    status = Column(Enum(ProductStatus), default=ProductStatus.ACTIVE, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    category_id = Column(Integer, ForeignKey("categories.id"), nullable=True)
+    brand_id = Column(Integer, ForeignKey("brands.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    category = relationship("Category", backref="products")
+    brand = relationship("Brand", backref="products")
+    variants = relationship("ProductVariant", back_populates="product", cascade="all, delete-orphan")
+    attributes = relationship("ProductAttribute", back_populates="product", cascade="all, delete-orphan")
+    tags = relationship("Tag", secondary=product_tag_association, backref="products")
+
+class ProductAttribute(Base):
+    __tablename__ = "product_attributes"
+    id = Column(Integer, primary_key=True, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
+    name = Column(String(100), nullable=False)
+    product = relationship("Product", back_populates="attributes")
+    values = relationship("ProductAttributeValue", back_populates="attribute", cascade="all, delete-orphan")
+
+class ProductAttributeValue(Base):
+    __tablename__ = "product_attribute_values"
+    id = Column(Integer, primary_key=True, index=True)
+    attribute_id = Column(Integer, ForeignKey("product_attributes.id"), nullable=False)
+    value = Column(String(100), nullable=False)
+    attribute = relationship("ProductAttribute", back_populates="values")
+
+class ProductVariant(Base):
+    __tablename__ = "product_variants"
+    id = Column(Integer, primary_key=True, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
+    sku = Column(String(100), unique=True, nullable=True)
+    
+    # ✅ Explicit prices for each customer class
+    purchase_cost = Column(Numeric(15, 2), nullable=False)
+    price_normal = Column(Numeric(15, 2), nullable=False)
+    price_visitor = Column(Numeric(15, 2), nullable=False)
+    price_shop_owner = Column(Numeric(15, 2), nullable=False)
+    price_wholesale = Column(Numeric(15, 2), nullable=False)
+    
+    stock_quantity = Column(Integer, default=0, nullable=False)
+    
+    product = relationship("Product", back_populates="variants")
+    attribute_mappings = relationship("VariantAttributeMapping", back_populates="variant", cascade="all, delete-orphan")
+
+class VariantAttributeMapping(Base):
+    __tablename__ = "variant_attribute_mappings"
+    id = Column(Integer, primary_key=True, index=True)
+    variant_id = Column(Integer, ForeignKey("product_variants.id"), nullable=False)
+    attribute_value_id = Column(Integer, ForeignKey("product_attribute_values.id"), nullable=False)
+    variant = relationship("ProductVariant", back_populates="attribute_mappings")
+    attribute_value = relationship("ProductAttributeValue")
+=========================================
+📂 2. BACKEND: app/api/v1/products.py
+=========================================
+# app/api/v1/products.py
+from fastapi import APIRouter, Depends, Query, HTTPException
+from sqlalchemy.orm import Session, joinedload
+from decimal import Decimal
+from typing import List
+
+from app.db.session import get_db
+from app.models.product import Product, ProductStatus, ProductVariant, VariantAttributeMapping, ProductAttributeValue
+from app.models.enums import CustomerGroup
+from app.core.dependencies import get_current_user
+from app.schemas.product import ProductResponse, ProductVariantResponse, ProductAttributeValueResponse
+from app.services.pricing_service import calculate_final_price
+
+router = APIRouter(prefix="/products", tags=["Products"])
+
+@router.get("/categories")
+def get_public_categories(db: Session = Depends(get_db)):
+    from app.models.product import Category
+    categories = db.query(Category).filter(Category.is_landing_category == 1).all()
+    return [{"id": c.id, "name": c.name, "slug": c.slug} for c in categories]
+
+
+@router.get("/", response_model=List[ProductResponse])
+def get_products(
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user),
+    status_filter: str = Query(default="active", description="Filter by status: active, draft, hidden, out_of_stock")
+):
+    group_str = getattr(current_user, "customer_group", "visitor")
+    try:
+        customer_group = CustomerGroup(group_str)
+    except ValueError:
+        customer_group = CustomerGroup.VISITOR
+
+    products = db.query(Product).options(
+        joinedload(Product.category),
+        joinedload(Product.brand),
+        joinedload(Product.variants)
+        .joinedload(ProductVariant.attribute_mappings)
+        .joinedload(VariantAttributeMapping.attribute_value)
+        .joinedload(ProductAttributeValue.attribute)
+    ).filter(Product.status == ProductStatus(status_filter), Product.is_active == True).all()
+
+    response_products = []
+    can_see_stock = (customer_group == CustomerGroup.WHOLESALE)
+
+    for product in products:
+        variant_responses = []
+        for variant in product.variants:
+            final_price = calculate_final_price(variant, customer_group)
+            
+            attrs = []
+            for mapping in variant.attribute_mappings:
+                attrs.append(ProductAttributeValueResponse(
+                    id=mapping.attribute_value.id,
+                    name=mapping.attribute_value.attribute.name,
+                    value=mapping.attribute_value.value
+                ))
+            
+            variant_responses.append(ProductVariantResponse(
+                id=variant.id,
+                sku=variant.sku,
+                stock_quantity=variant.stock_quantity if can_see_stock else None,
+                final_price=final_price,
+                attributes=attrs
+            ))
+            
+        response_products.append(ProductResponse(
+            id=product.id,
+            title=product.title,
+            title_en=product.title_en,
+            description=product.description,
+            status=product.status.value,
+            category_name=product.category.name if product.category else None,
+            brand_name=product.brand.name if product.brand else None,
+            variants=variant_responses
+        ))
+        
+    return response_products
+
+
+# ✅ SPECIFIC ROUTE: Must come BEFORE the dynamic /{product_id} route
+@router.get("/search", response_model=List[ProductResponse])
+def search_products(
+    q: str = Query(..., min_length=0, description="Search query (Persian or English)"),
+    sort_by: str = Query(default="newest", description="Sort by: newest, price_asc, price_desc, most_bought"),
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Advanced search with Persian/English partial matching and sorting."""
+    group_str = getattr(current_user, "customer_group", "visitor")
+    try:
+        customer_group = CustomerGroup(group_str)
+    except ValueError:
+        customer_group = CustomerGroup.VISITOR
+
+    # Case-insensitive partial match for both Persian and English titles
+    search_pattern = f"%{q}%"
+    query = db.query(Product).filter(
+        Product.status == ProductStatus.ACTIVE,
+        Product.is_active == True,
+        (Product.title.ilike(search_pattern) | Product.title_en.ilike(search_pattern))
+    )
+
+    # Apply sorting
+    if sort_by == "most_bought":
+        query = query.order_by(Product.sold_count.desc())
+    elif sort_by == "newest":
+        query = query.order_by(Product.created_at.desc())
+
+    # Eager load relationships
+    products = query.options(
+        joinedload(Product.category),
+        joinedload(Product.brand),
+        joinedload(Product.variants)
+        .joinedload(ProductVariant.attribute_mappings)
+        .joinedload(VariantAttributeMapping.attribute_value)
+        .joinedload(ProductAttributeValue.attribute)
+    ).all()
+
+    response_products = []
+    can_see_stock = (customer_group == CustomerGroup.WHOLESALE)
+
+    for product in products:
+        variant_responses = []
+        for variant in product.variants:
+            final_price = calculate_final_price(variant, customer_group)
+            
+            # FIXED: Using the Pydantic model properly to include the 'id'
+            attrs = [
+                ProductAttributeValueResponse(
+                    id=m.attribute_value.id,
+                    name=m.attribute_value.attribute.name,
+                    value=m.attribute_value.value
+                ) 
+                for m in variant.attribute_mappings
+            ]
+            
+            variant_responses.append(ProductVariantResponse(
+                id=variant.id,
+                sku=variant.sku,
+                stock_quantity=variant.stock_quantity if can_see_stock else None,
+                final_price=final_price,
+                attributes=attrs
+            ))
+            
+        response_products.append(ProductResponse(
+            id=product.id,
+            title=product.title,
+            title_en=product.title_en,
+            description=product.description,
+            status=product.status.value,
+            category_name=product.category.name if product.category else None,
+            brand_name=product.brand.name if product.brand else None,
+            variants=variant_responses
+        ))
+        
+    return response_products
+
+
+# ✅ DYNAMIC ROUTE: Must come LAST
+@router.get("/{product_id}", response_model=ProductResponse)
+def get_product(
+    product_id: int,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    group_str = getattr(current_user, "customer_group", "visitor")
+    try:
+        customer_group = CustomerGroup(group_str)
+    except ValueError:
+        customer_group = CustomerGroup.VISITOR
+
+    product = db.query(Product).options(
+        joinedload(Product.category),
+        joinedload(Product.brand),
+        joinedload(Product.variants)
+        .joinedload(ProductVariant.attribute_mappings)
+        .joinedload(VariantAttributeMapping.attribute_value)
+        .joinedload(ProductAttributeValue.attribute)
+    ).filter(Product.id == product_id, Product.is_active == True).first()
+
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    can_see_stock = (customer_group == CustomerGroup.WHOLESALE)
+    variant_responses = []
+    
+    for variant in product.variants:
+        final_price = calculate_final_price(variant, customer_group)
+        attrs = []
+        for mapping in variant.attribute_mappings:
+            attrs.append(ProductAttributeValueResponse(
+                id=mapping.attribute_value.id,
+                name=mapping.attribute_value.attribute.name,
+                value=mapping.attribute_value.value
+            ))
+        
+        variant_responses.append(ProductVariantResponse(
+            id=variant.id,
+            sku=variant.sku,
+            stock_quantity=variant.stock_quantity if can_see_stock else None,
+            final_price=final_price,
+            attributes=attrs
+        ))
+        
+    return ProductResponse(
+        id=product.id,
+        title=product.title,
+        title_en=product.title_en,
+        description=product.description,
+        status=product.status.value,
+        category_name=product.category.name if product.category else None,
+        brand_name=product.brand.name if product.brand else None,
+        variants=variant_responses
+    )
+
+@router.get("/categories")
+def get_public_categories(db: Session = Depends(get_db)):
+    from app.models.product import Category
+    categories = db.query(Category).filter(Category.is_landing_category == 1).all()
+    return [{"id": c.id, "name": c.name, "slug": c.slug} for c in categories]
+
+=========================================
+📂 3. BACKEND: app/api/v1/admin.py
+=========================================
+# app/api/v1/admin.py
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.orm import Session
+from typing import List, Optional
+from datetime import datetime
+
+from app.db.session import get_db
+from app.core.dependencies import require_admin
+from app.models.user import User
+from app.models.audit import AuditLog
+from app.models.partner_request import PartnerRequest
+from app.models.product import Product, ProductVariant, ProductStatus, Brand, Category
+from app.models.order import Order, OrderItem
+from app.services.review_service import approve_review, reject_review
+from app.services.audit_service import log_admin_action
+from app.services.partner_service import get_pending_requests, review_partner_request
+from app.schemas.review import ReviewResponse
+from app.schemas.partner_request import PartnerRequestResponse, PartnerReviewRequest
+from pydantic import BaseModel
+
+router = APIRouter(prefix="/admin", tags=["Admin"])
+
+class AuditLogResponse(BaseModel):
+    id: int
+    admin_id: int
+    action: str
+    target_type: str
+    target_id: int
+    details: str
+    created_at: datetime
+    class Config:
+        from_attributes = True
+
+class ApproveRequestSchema(BaseModel):
+    customer_group: str
+
+class OrderStatusUpdateSchema(BaseModel):
+    status: str
+    notes: Optional[str] = None
+
+class ProductUpdateSchema(BaseModel):
+    title: Optional[str] = None
+    title_en: Optional[str] = None
+    description: Optional[str] = None
+    image_url: Optional[str] = None
+    brand_id: Optional[int] = None
+    category_id: Optional[int] = None
+    is_active: Optional[bool] = None
+    attributes: Optional[list] = None
+    variants: Optional[list] = None
+    title: Optional[str] = None
+    title_en: Optional[str] = None
+    description: Optional[str] = None
+    image_url: Optional[str] = None
+    brand_id: Optional[int] = None
+    category_id: Optional[int] = None
+    is_active: Optional[bool] = None
+    attributes: Optional[list] = None
+    variants: Optional[list] = None
+
+class ProductCreateSchema(BaseModel):
+    title: str
+    title_en: Optional[str] = None
+    description: Optional[str] = None
+    image_url: Optional[str] = None
+    brand_id: Optional[int] = None
+    category_id: Optional[int] = None
+
+class CategorySchema(BaseModel):
+    id: int
+    name: str
+    class Config:
+        from_attributes = True
+
+class BrandSchema(BaseModel):
+    id: int
+    name: str
+    class Config:
+        from_attributes = True
+
+class BrandCreateSchema(BaseModel):
+    name: str
+
+# ==========================================
+# 1. ENHANCED DASHBOARD STATS
+# ==========================================
+@router.get("/stats")
+def get_admin_stats(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    total_users = db.query(User).count()
+    total_products = db.query(Product).count()
+    pending_requests = db.query(PartnerRequest).filter(PartnerRequest.status == "pending").count()
+    
+    total_orders = db.query(Order).count()
+    pending_orders = db.query(Order).filter(Order.status == "pending_payment").count()
+    paid_orders = db.query(Order).filter(Order.status == "paid").count()
+    processing_orders = db.query(Order).filter(Order.status == "processing").count()
+    shipped_orders = db.query(Order).filter(Order.status == "delivered").count()
+    deactivated_products = db.query(Product).filter(Product.is_active == False).count()
+    
+    return {
+        "total_users": total_users,
+        "total_products": total_products,
+        "pending_requests": pending_requests,
+        "total_orders": total_orders,
+        "pending_orders": pending_orders,
+        "paid_orders": paid_orders,
+        "processing_orders": processing_orders,
+        "shipped_orders": shipped_orders,
+        "deactivated_products": deactivated_products
+    }
+
+# ==========================================
+# 2. ORDER MANAGEMENT
+# ==========================================
+@router.get("/orders")
+def get_all_orders(
+    status: Optional[str] = None,
+    limit: int = Query(default=50, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    query = db.query(Order)
+    if status:
+        query = query.filter(Order.status == status)
+    
+    orders = query.order_by(Order.created_at.desc()).limit(limit).all()
+    return [
+        {
+            "id": order.id,
+            "user_id": order.user_id,
+            "user_phone": order.user.phone_number if order.user else "Unknown",
+            "user_name": order.user.full_name if order.user else "Unknown",
+            "status": order.status.value if hasattr(order.status, 'value') else str(order.status),
+            "total_price": float(order.total_price),
+            "city": order.city,
+            "province": order.province,
+            "created_at": order.created_at,
+            "total_items": order.total_items
+        }
+        for order in orders
+    ]
+
+@router.get("/orders/{order_id}")
+def get_order_details(
+    order_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    order = db.query(Order).filter(Order.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    return {
+        "id": order.id,
+        "user_name": order.user.full_name if order.user else "Unknown",
+        "user_phone": order.user.phone_number if order.user else "Unknown",
+        "status": order.status.value if hasattr(order.status, 'value') else str(order.status),
+        "total_price": float(order.total_price),
+        "province": order.province,
+        "city": order.city,
+        "full_address": order.full_address,
+        "postal_code": order.postal_code,
+        "created_at": order.created_at,
+        "total_items": order.total_items,
+        "items": [
+            {
+                "id": item.id,
+                "product_title": item.product_title_snapshot,
+                "variant_sku": item.variant_sku_snapshot,
+                "quantity": item.quantity,
+                "unit_price": float(item.unit_price),
+                "total_price": float(item.total_price)
+            }
+            for item in order.items
+        ]
+    }
+
+@router.put("/orders/{order_id}/status")
+def update_order_status(
+    order_id: int,
+    status_data: OrderStatusUpdateSchema,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    order = db.query(Order).filter(Order.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    valid_statuses = ["pending_payment", "paid", "processing", "delivered", "completed", "cancelled", "refunded"]
+    if status_data.status not in valid_statuses:
+        raise HTTPException(status_code=400, detail="Invalid status")
+    
+    old_status = order.status.value if hasattr(order.status, 'value') else str(order.status)
+    order.status = status_data.status
+    db.commit()
+    db.refresh(order)
+    
+    log_admin_action(
+        db, current_user.id, "UPDATE_ORDER_STATUS", "ORDER", order_id,
+        f"Status changed from {old_status} to {status_data.status}. Notes: {status_data.notes or 'None'}"
+    )
+    
+    return {"message": "Order status updated successfully", "status": order.status.value if hasattr(order.status, 'value') else str(order.status)}
+
+# ==========================================
+# 3. BRAND MANAGEMENT
+# ==========================================
+@router.get("/categories", response_model=List[CategorySchema])
+def get_categories(db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    return db.query(Category).all()
+
+@router.get("/brands", response_model=List[BrandSchema])
+def get_brands(db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    return db.query(Brand).all()
+
+@router.post("/brands")
+def create_brand(data: BrandCreateSchema, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    brand = Brand(name=data.name, slug=data.name.lower().replace(" ", "-"))
+    db.add(brand)
+    db.commit()
+    db.refresh(brand)
+    return {"id": brand.id, "name": brand.name}
+
+@router.delete("/brands/{brand_id}")
+def delete_brand(brand_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    brand = db.query(Brand).filter(Brand.id == brand_id).first()
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+    
+    # Safely unlink products from this brand so the database doesn't crash
+    db.query(Product).filter(Product.brand_id == brand_id).update({"brand_id": None})
+    
+    db.delete(brand)
+    db.commit()
+    return {"message": "Brand deleted successfully"}
+
+# ==========================================
+# 4. ADMIN PRODUCT MANAGEMENT
+# ==========================================
+@router.post("/products/")
+def create_product(
+    data: ProductCreateSchema,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    product = Product(
+        title=data.title,
+        title_en=data.title_en,
+        description=data.description,
+        brand_id=data.brand_id,
+        category_id=data.category_id,
+        status=ProductStatus.ACTIVE,
+        is_active=True
+    )
+    db.add(product)
+    db.commit()
+    db.refresh(product)
+    
+    return {"id": product.id, "title": product.title, "message": "محصول با موفقیت ایجاد شد"}
+
+@router.get("/products")
+def get_admin_products(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    products = db.query(Product).all()
+    return [
+        {
+            "id": p.id,
+            "title": p.title,
+            "title_en": p.title_en,
+            "status": p.status.value if hasattr(p.status, 'value') else str(p.status),
+            "is_active": p.is_active
+        }
+        for p in products
+    ]
+
+
+@router.get("/products/{product_id}")
+def get_admin_product_details(
+    product_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    from sqlalchemy.orm import joinedload
+    from app.models.product import ProductAttribute, ProductVariant, VariantAttributeMapping
+    
+    product = db.query(Product).options(
+        joinedload(Product.attributes).joinedload(ProductAttribute.values),
+        joinedload(Product.variants).joinedload(ProductVariant.attribute_mappings)
+    ).filter(Product.id == product_id).first()
+    
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    return {
+        "id": product.id,
+        "title": product.title,
+        "title_en": product.title_en or "",
+        "description": product.description or "",
+        "image_url": product.image_url or "",
+        "brand_id": product.brand_id,
+        "category_id": product.category_id,
+        "attributes": [
+            {
+                "id": attr.id,
+                "name": attr.name,
+                "values": [val.value for val in attr.values]
+            }
+            for attr in product.attributes
+        ],
+        "variants": [
+            {
+                "id": var.id,
+                "sku": var.sku or "",
+                "price": float(var.price_normal) if var.price_normal else 0,
+                "stock_quantity": var.stock_quantity or 0,
+                "selectedValueIds": [mapping.attribute_value_id for mapping in var.attribute_mappings]
+            }
+            for var in product.variants
+        ]
+    }
+
+
+
+@router.put("/products/{product_id}")
+def update_product(
+    product_id: int,
+    update_data: ProductUpdateSchema,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    from app.models.product import ProductAttribute, ProductAttributeValue, ProductVariant, VariantAttributeMapping
+    import time
+
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    # 1. Update basic info
+    if update_data.title is not None: product.title = update_data.title
+    if update_data.title_en is not None: product.title_en = update_data.title_en
+    if update_data.description is not None: product.description = update_data.description
+    if update_data.image_url is not None: product.image_url = update_data.image_url
+    if update_data.brand_id is not None: product.brand_id = update_data.brand_id
+    if update_data.category_id is not None: product.category_id = update_data.category_id
+    
+    if update_data.is_active is not None:
+        product.is_active = update_data.is_active
+        product.status = ProductStatus.HIDDEN if not update_data.is_active else ProductStatus.ACTIVE
+        
+    db.commit()
+    
+    # 2. Overwrite attributes and variants if provided
+    if update_data.attributes is not None or update_data.variants is not None:
+        # Delete old mappings and variants
+        db.query(VariantAttributeMapping).filter(VariantAttributeMapping.variant_id.in_(
+            db.query(ProductVariant.id).filter(ProductVariant.product_id == product_id)
+        )).delete(synchronize_session=False)
+        db.query(ProductVariant).filter(ProductVariant.product_id == product_id).delete(synchronize_session=False)
+        
+        # Delete old attributes and values
+        db.query(ProductAttributeValue).filter(ProductAttributeValue.attribute_id.in_(
+            db.query(ProductAttribute.id).filter(ProductAttribute.product_id == product_id)
+        )).delete(synchronize_session=False)
+        db.query(ProductAttribute).filter(ProductAttribute.product_id == product_id).delete(synchronize_session=False)
+        db.commit()
+        
+        # Create new attributes
+        if update_data.attributes:
+            for attr_data in update_data.attributes:
+                if not attr_data.get("name"): continue
+                attr = ProductAttribute(product_id=product_id, name=attr_data["name"])
+                db.add(attr)
+                db.flush()
+                for val in attr_data.get("values", []):
+                    if val:
+                        db.add(ProductAttributeValue(attribute_id=attr.id, value=str(val)))
+        
+        # Create new variants
+        if update_data.variants:
+            for var_data in update_data.variants:
+                if not var_data.get("price") and not var_data.get("stock_quantity"): continue
+                variant = ProductVariant(
+                    product_id=product_id,
+                    sku=var_data.get("sku") or f"VAR-{product_id}-{int(time.time())}",
+                    purchase_cost=float(var_data.get("price", 0)),
+                    price_normal=float(var_data.get("price", 0)),
+                    price_visitor=float(var_data.get("price", 0)),
+                    price_shop_owner=float(var_data.get("price", 0)),
+                    price_wholesale=float(var_data.get("price", 0)),
+                    stock_quantity=int(var_data.get("stock_quantity", 0))
+                )
+                db.add(variant)
+                db.flush()
+                for val_id in var_data.get("selectedValueIds", []):
+                    try:
+                        db.add(VariantAttributeMapping(variant_id=variant.id, attribute_value_id=int(val_id)))
+                    except (ValueError, TypeError):
+                        pass
+        db.commit()
+        
+    return {"message": "Product updated successfully", "id": product.id}
+
+@router.delete("/products/{product_id}")
+def delete_product(
+    product_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    from app.models.product import Product, ProductAttribute, ProductAttributeValue, ProductVariant, VariantAttributeMapping
+    
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    try:
+        # 1. Explicitly delete variant attribute mappings first
+        db.query(VariantAttributeMapping).filter(
+            VariantAttributeMapping.variant_id.in_(
+                db.query(ProductVariant.id).filter(ProductVariant.product_id == product_id)
+            )
+        ).delete(synchronize_session=False)
+        
+        # 2. Delete variants
+        db.query(ProductVariant).filter(ProductVariant.product_id == product_id).delete(synchronize_session=False)
+        
+        # 3. Delete attribute values
+        db.query(ProductAttributeValue).filter(
+            ProductAttributeValue.attribute_id.in_(
+                db.query(ProductAttribute.id).filter(ProductAttribute.product_id == product_id)
+            )
+        ).delete(synchronize_session=False)
+        
+        # 4. Delete attributes
+        db.query(ProductAttribute).filter(ProductAttribute.product_id == product_id).delete(synchronize_session=False)
+        
+        # 5. Finally, delete the product itself
+        db.delete(product)
+        db.commit()
+        
+        from app.services.audit_service import log_admin_action
+        log_admin_action(db, current_user.id, "DELETE_PRODUCT", "PRODUCT", product_id, "Deleted product and all related data")
+        
+        return {"message": "Product and all related data deleted successfully"}
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error deleting product: {str(e)}")
+
+
+# ==========================================
+# 5. AUDIT LOGS & PARTNER REQUESTS
+# ==========================================
+@router.get("/audit-logs", response_model=List[AuditLogResponse])
+def get_audit_logs(limit: int = Query(default=50, ge=1, le=100), db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    return db.query(AuditLog).order_by(AuditLog.created_at.desc()).limit(limit).all()
+
+@router.get("/partner-requests", response_model=List[PartnerRequestResponse])
+def get_pending_partner_requests(db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    return get_pending_requests(db)
+
+@router.post("/partner-requests/{request_id}/approve")
+def approve_partner_request(request_id: int, data: ApproveRequestSchema, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    req = db.query(PartnerRequest).filter(PartnerRequest.id == request_id).first()
+    if not req: raise HTTPException(status_code=404, detail="Request not found")
+    user = db.query(User).filter(User.id == req.user_id).first()
+    if user:
+        if data.customer_group not in ["VISITOR", "SHOP_OWNER", "WHOLESALE", "NORMAL"]:
+            raise HTTPException(status_code=400, detail="Invalid group")
+        user.customer_group = data.customer_group
+        db.commit()
+    db.delete(req)
+    db.commit()
+    log_admin_action(db, current_user.id, "APPROVE_PARTNER", "PARTNER_REQUEST", request_id, f"Approved as {data.customer_group}")
+    return {"message": "User approved and group updated."}
+
+@router.post("/partner-requests/{request_id}/reject")
+def reject_partner_request(request_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    req = db.query(PartnerRequest).filter(PartnerRequest.id == request_id).first()
+    if req:
+        db.delete(req)
+        db.commit()
+        log_admin_action(db, current_user.id, "REJECT_PARTNER", "PARTNER_REQUEST", request_id, "Rejected partner request")
+    return {"message": "Request rejected."}
+class CategoryCreateSchema(BaseModel):
+    name: str
+
+@router.post("/categories")
+def create_category(data: CategoryCreateSchema, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    cat = Category(name=data.name, slug=data.name.lower().replace(" ", "-"), is_landing_category=1)
+    db.add(cat)
+    db.commit()
+    db.refresh(cat)
+    return {"id": cat.id, "name": cat.name}
+
+@router.delete("/categories/{category_id}")
+def delete_category(category_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    cat = db.query(Category).filter(Category.id == category_id).first()
+    if not cat: raise HTTPException(status_code=404, detail="Category not found")
+    db.query(Product).filter(Product.category_id == category_id).update({"category_id": None})
+    db.delete(cat)
+    db.commit()
+    return {"message": "Category deleted successfully"}
+
+=========================================
+📂 4. BACKEND: app/api/v1/admin_products.py
+=========================================
+# app/api/v1/admin_products.py
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+from typing import List, Optional
+from pydantic import BaseModel
+from decimal import Decimal
+
+from app.db.session import get_db
+from app.core.dependencies import require_admin
+from app.models.user import User
+from app.models.product import (
+    Product, 
+    ProductAttribute, 
+    ProductAttributeValue, 
+    ProductVariant, 
+    VariantAttributeMapping
+)
+from app.models.enums import ProductStatus # Importing your enum for the status
+
+from app.schemas.product import (
+    ProductAttributeCreate,
+    ProductAttributeValueCreate,
+    ProductVariantCreate,
+    AdminProductAttributeResponse,
+    AdminProductAttributeValueResponse,
+    AdminProductVariantResponse
+)
+
+router = APIRouter(prefix="/admin/products", tags=["Admin Products"])
+
+# --- Schemas for Base Product ---
+class ProductCreate(BaseModel):
+    title: str
+    title_en: Optional[str] = None
+    description: Optional[str] = None
+
+# --- 1. Create Base Product (NEW) ---
+@router.post("/", response_model=dict)
+def create_base_product(
+    product_data: ProductCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    """Admin creates the base product details."""
+    new_product = Product(
+        title=product_data.title,
+        title_en=product_data.title_en,
+        description=product_data.description,
+        status=ProductStatus.ACTIVE # Using your existing Enum
+    )
+    db.add(new_product)
+    db.commit()
+    db.refresh(new_product)
+    return {"id": new_product.id, "title": new_product.title}
+
+# --- 2. Product Attributes ---
+@router.post("/{product_id}/attributes", response_model=AdminProductAttributeResponse)
+def create_product_attribute(
+    product_id: int,
+    attribute_data: ProductAttributeCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    """Admin creates a new attribute for a product (e.g., 'Color', 'Flavor')."""
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    attribute = ProductAttribute(
+        product_id=product_id,
+        name=attribute_data.name
+    )
+    db.add(attribute)
+    db.commit()
+    db.refresh(attribute)
+    return attribute
+
+@router.post("/attributes/{attribute_id}/values", response_model=AdminProductAttributeValueResponse)
+def create_attribute_value(
+    attribute_id: int,
+    value_data: ProductAttributeValueCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    """Admin creates a value for an attribute (e.g., 'Red', 'Blue' for Color)."""
+    attribute = db.query(ProductAttribute).filter(ProductAttribute.id == attribute_id).first()
+    if not attribute:
+        raise HTTPException(status_code=404, detail="Attribute not found")
+    
+    value = ProductAttributeValue(
+        attribute_id=attribute_id,
+        value=value_data.value
+    )
+    db.add(value)
+    db.commit()
+    db.refresh(value)
+    return value
+
+# --- 3. Product Variants ---
+@router.post("/{product_id}/variants", response_model=AdminProductVariantResponse)
+def create_product_variant(
+    product_id: int,
+    variant_data: ProductVariantCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    """Admin creates a variant for a product with specific attribute combinations."""
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    # Create the variant
+    variant = ProductVariant(
+        product_id=product_id,
+        sku=variant_data.sku,
+        purchase_cost=variant_data.purchase_cost,
+        price_normal=getattr(variant_data, 'price_normal', None) or variant_data.purchase_cost,
+        price_visitor=getattr(variant_data, 'price_visitor', None) or variant_data.purchase_cost,
+        price_shop_owner=getattr(variant_data, 'price_shop_owner', None) or variant_data.purchase_cost,
+        price_wholesale=getattr(variant_data, 'price_wholesale', None) or variant_data.purchase_cost,
+        stock_quantity=variant_data.stock_quantity
+    )
+    db.add(variant)
+    db.commit()
+    db.refresh(variant)
+    
+    # Map attribute values to the variant
+    if variant_data.attribute_value_ids:
+        for attr_value_id in variant_data.attribute_value_ids:
+            attr_value = db.query(ProductAttributeValue).filter(ProductAttributeValue.id == attr_value_id).first()
+            if attr_value:
+                mapping = VariantAttributeMapping(
+                    variant_id=variant.id,
+                    attribute_value_id=attr_value_id
+                )
+                db.add(mapping)
+    
+    db.commit()
+    db.refresh(variant)
+    return variant
+
+# --- 4. Get Product Full Details ---
+@router.get("/{product_id}/details")
+def get_product_full_details(
+    product_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    """Get product with all its attributes, values, and variants."""
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    return {
+        "id": product.id,
+        "title": product.title,
+        "attributes": [
+            {
+                "id": attr.id,
+                "name": attr.name,
+                "values": [
+                    {"id": val.id, "value": val.value}
+                    for val in attr.values
+                ]
+            }
+            for attr in product.attributes
+        ],
+        "variants": [
+            {
+                "id": var.id,
+                "sku": var.sku,
+                "purchase_cost": float(var.purchase_cost),
+                "stock_quantity": var.stock_quantity,
+                "attribute_values": [
+                    {"id": mapping.attribute_value.id, "value": mapping.attribute_value.value}
+                    for mapping in var.attribute_mappings
+                ]
+            }
+            for var in product.variants
+        ]
+    }
+=========================================
+📂 5. BACKEND: app/main.py
+=========================================
+# app/main.py
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from app.core.config import get_settings
+
+# Routers
+from app.api.v1.health import router as health_router
+from app.api.v1.auth import router as auth_router
+from app.api.v1.products import router as products_router
+from app.api.v1.cart import router as cart_router
+from app.api.v1.checkout import router as checkout_router
+from app.api.v1.payments import router as payments_router
+from app.api.v1.reviews import router as reviews_router
+from app.api.v1.favorites import router as favorites_router
+from app.api.v1.admin import router as admin_router
+from app.api.v1.admin_products import router as admin_products_router
+
+settings = get_settings()
+app = FastAPI(title=settings.APP_NAME, version=settings.APP_VERSION, docs_url="/docs")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ✅ FIX: Added prefix="/api/v1" to ALL v1 routers so the frontend matches perfectly!
+app.include_router(health_router, prefix="/api/v1", tags=["Health"])
+app.include_router(auth_router, prefix="/api/v1", tags=["Authentication"])
+app.include_router(products_router, prefix="/api/v1", tags=["Products"])
+app.include_router(cart_router, prefix="/api/v1", tags=["Cart"])
+app.include_router(checkout_router, prefix="/api/v1", tags=["Checkout"])
+app.include_router(payments_router, prefix="/api/v1", tags=["Payments"])
+app.include_router(reviews_router, prefix="/api/v1", tags=["Reviews"])
+app.include_router(favorites_router, prefix="/api/v1", tags=["Favorites"])
+app.include_router(admin_router, prefix="/api/v1", tags=["Admin"])
+app.include_router(admin_products_router, prefix="/api/v1", tags=["Admin Products"])
+
+@app.get("/")
+async def root():
+    return {"message": f"Welcome to {settings.APP_NAME}"}
+=========================================
+📂 6. FRONTEND: src/utils/api.js
+=========================================
+// src/utils/api.js
+
+const API_BASE_URL = 'http://127.0.0.1:8000/api/v1';
+
+// Helper to format prices with Persian numbers and separators (e.g., ۶٬۰۰۰۰۰۰)
+export const formatPrice = (price) => {
+  if (!price) return '۰';
+  return new Intl.NumberFormat('fa-IR').format(price);
+};
+
+// Helper to convert English numbers to Persian
+export const toFarsiNumber = (n) => {
+  const farsiDigits = ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹'];
+  return n.toString().replace(/\d/g, x => farsiDigits[x]);
+};
+
+// 1. Fetch All Products (For Shop Page)
+export const fetchProducts = async () => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/products/search?q=&sort_by=newest`);
+    
+    if (!response.ok) {
+      throw new Error(`Failed to fetch products: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    const productsArray = Array.isArray(data) ? data : (data.items || []);
+
+    return productsArray.map(product => {
+      const firstVariant = product.variants?.[0] || {};
+      // ✅ FIX: Changed purchase_cost to final_price
+      const price = firstVariant.final_price || 0; 
+      
+      return {
+        id: product.id,
+        title: product.title,
+        titleEn: product.title_en || product.title,
+        price: price,
+        discountPrice: price,
+        discount: 0,
+        image: '/category-img.png',
+        category: product.category?.name || 'دستگاه',
+        brand: product.brand?.name || 'generic'
+      };
+    });
+  } catch (error) {
+    console.error("Error fetching products:", error);
+    return [];
+  }
+};
+
+// 2. Fetch Single Product (For Product Detail Page)
+export const fetchProductById = async (id) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/products/${id}`);
+    if (!response.ok) throw new Error('Failed to fetch product');
+    const product = await response.json();
+    
+    const firstVariant = product.variants?.[0] || {};
+    // ✅ FIX: Changed purchase_cost to final_price
+    const price = firstVariant.final_price || 0;
+
+    return {
+      id: product.id,
+      title: product.title,
+      titleEn: product.title_en || product.title,
+      price: price,
+      discountPrice: price,
+      discount: 0,
+      image: '/category-img.png',
+      brand: product.brand?.name || 'NO NAME',
+      description: product.description || 'توضیحات محصول به زودی اضافه می‌شود.',
+      category: product.category?.name || 'دستگاه',
+      variants: product.variants || []
+    };
+  } catch (error) {
+    console.error("Error fetching product:", error);
+    return null;
+  }
+};
+
+// 3. Create Order & Initiate Payment (For Checkout Page)
+export const createOrderAndPay = async (formData) => {
+  try {
+    const checkoutRes = await fetch(`${API_BASE_URL}/checkout/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(formData)
+    });
+    
+    if (!checkoutRes.ok) {
+      const err = await checkoutRes.json();
+      throw new Error(err.detail || 'Failed to create order');
+    }
+    const orderData = await checkoutRes.json();
+
+    const idempotencyKey = `checkout_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const paymentRes = await fetch(`${API_BASE_URL}/payments/initiate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        order_id: orderData.id,
+        idempotency_key: idempotencyKey
+      })
+    });
+    
+    if (!paymentRes.ok) {
+      const err = await paymentRes.json();
+      throw new Error(err.detail || 'Failed to initiate payment');
+    }
+    
+    return await paymentRes.json();
+    
+  } catch (error) {
+    console.error("Checkout error:", error);
+    throw error;
+  }
+};
+=========================================
+📂 7. FRONTEND: src/Context/CartContext.jsx
+=========================================
+// src/Context/CartContext.jsx
+import React, { createContext, useContext, useState, useEffect } from 'react';
+
+const CartContext = createContext();
+
+export const useCart = () => {
+  const context = useContext(CartContext);
+  if (!context) {
+    throw new Error('useCart must be used within a CartProvider');
+  }
+  return context;
+};
+
+export const CartProvider = ({ children }) => {
+  // Load cart from localStorage on initial render
+  const [cartItems, setCartItems] = useState(() => {
+    try {
+      const savedCart = localStorage.getItem('venix_cart');
+      return savedCart ? JSON.parse(savedCart) : [];
+    } catch (error) {
+      return [];
+    }
+  });
+
+  // Save cart to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem('venix_cart', JSON.stringify(cartItems));
+  }, [cartItems]);
+
+  const addToCart = (productWithQuantity) => {
+    setCartItems((prev) => {
+      const existing = prev.find((item) => item.id === productWithQuantity.id);
+      if (existing) {
+        return prev.map((item) =>
+          item.id === productWithQuantity.id
+            ? { ...item, quantity: item.quantity + productWithQuantity.quantity }
+            : item
+        );
+      }
+      return [...prev, productWithQuantity];
+    });
+  };
+
+  const removeFromCart = (id) => {
+    setCartItems((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  const updateQuantity = (id, quantity) => {
+    if (quantity <= 0) {
+      removeFromCart(id);
+      return;
+    }
+    setCartItems((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, quantity } : item))
+    );
+  };
+
+  const clearCart = () => {
+    setCartItems([]);
+  };
+
+  const cartCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
+  const cartTotal = cartItems.reduce((sum, item) => sum + ((item.discountPrice || item.price) * item.quantity), 0);
+
+  return (
+    <CartContext.Provider value={{ cartItems, addToCart, removeFromCart, updateQuantity, clearCart, cartCount, cartTotal }}>
+      {children}
+    </CartContext.Provider>
+  );
+};
+=========================================
+📂 8. FRONTEND: src/pages/Shop.jsx
+=========================================
+// src/pages/Shop.jsx
+import React, { useState, useEffect } from 'react';
+import { FiChevronLeft, FiChevronRight, FiSliders, FiX } from 'react-icons/fi';
+import Header from '../components/Header';
+import Footer from '../components/Footer';
+import ProductCard from '../components/ProductCard';
+import Breadcrumb from '../components/shop/Breadcrumb';
+import ShopSidebar from '../components/shop/ShopSidebar';
+import SortDropdown from '../components/shop/SortDropdown';
+import { fetchProducts, toFarsiNumber } from '../utils/api';
+
+const Shop = () => {
+  const [filters, setFilters] = useState({ categories: [], brands: [], priceRange: [0, 100000000] });
+  const [sort, setSort] = useState('newest');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [isMobileFilterOpen, setIsMobileFilterOpen] = useState(false);
+  
+  const [allProducts, setAllProducts] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const itemsPerPage = 12;
+
+  useEffect(() => {
+    const loadProducts = async () => {
+      setIsLoading(true);
+      const data = await fetchProducts();
+      setAllProducts(data);
+      setIsLoading(false);
+    };
+    loadProducts();
+  }, []);
+
+  const filteredProducts = allProducts.filter((product) => {
+    const categoryMatch = filters.categories.length === 0 || filters.categories.includes(product.category);
+    const brandMatch = filters.brands.length === 0 || filters.brands.includes(product.brand);
+    const finalPrice = product.discountPrice || product.price;
+    const priceMatch = finalPrice >= filters.priceRange[0] && finalPrice <= filters.priceRange[1];
+    return categoryMatch && brandMatch && priceMatch;
+  });
+
+  const sortedProducts = [...filteredProducts].sort((a, b) => {
+    const priceA = a.discountPrice || a.price;
+    const priceB = b.discountPrice || b.price;
+    if (sort === 'price-asc') return priceA - priceB;
+    if (sort === 'price-desc') return priceB - priceA;
+    return b.id - a.id;
+  });
+
+  const totalPages = Math.ceil(sortedProducts.length / itemsPerPage) || 1;
+  const safeCurrentPage = currentPage > totalPages ? 1 : currentPage;
+  const startIndex = (safeCurrentPage - 1) * itemsPerPage;
+  const currentProducts = sortedProducts.slice(startIndex, startIndex + itemsPerPage);
+
+  const handlePageChange = (page) => {
+    setCurrentPage(page);
+    setTimeout(() => {
+      const shopSection = document.getElementById('shop-section');
+      if (shopSection) shopSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 50);
+  };
+
+  const handleFilterChange = (newFilters) => { setFilters(newFilters); setCurrentPage(1); };
+
+  return (
+    <div className="min-h-screen bg-background font-sans text-gray-200">
+      <Header />
+      <Breadcrumb />
+      <section id="shop-section" className="my-[35px] scroll-mt-24">
+        <div className="max-w-[1197px] mx-auto px-4">
+          <div className="flex items-center justify-between mb-6">
+            <h1 className="text-[25px] font-bold text-white">فروشگاه محصولات</h1>
+            <SortDropdown value={sort} onChange={setSort} />
+          </div>
+          <div className="flex justify-end lg:hidden mb-4">
+            <button onClick={() => setIsMobileFilterOpen(true)} className="flex items-center gap-2 bg-[#FDF8E8]/40 text-gray-800 px-4 py-2 rounded-[15px] text-sm font-bold hover:bg-[#FDF8E8]/60 transition">
+              <FiSliders className="w-4 h-4" /> فیلترها
+            </button>
+          </div>
+          <div className="flex flex-col lg:flex-row gap-6">
+            <aside className="hidden lg:block w-[280px] shrink-0">
+              <ShopSidebar filters={filters} setFilters={handleFilterChange} />
+            </aside>
+            <div className="flex-1">
+              <p className="text-[12px] text-gray-400 mb-4">
+                نمایش <span className="text-primary font-bold">{currentProducts.length}</span> از <span className="text-primary font-bold">{sortedProducts.length}</span> محصول
+              </p>
+              {isLoading ? (
+                <div className="flex items-center justify-center py-20"><span className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></span></div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5 justify-items-center min-h-[400px]">
+                  {currentProducts.length > 0 ? currentProducts.map((product) => <ProductCard key={product.id} product={product} />) : (
+                    <div className="col-span-full flex flex-col items-center justify-center py-20 text-gray-500">
+                      <p className="text-lg font-bold mb-2">محصولی یافت نشد!</p>
+                      <p className="text-sm">لطفاً فیلترهای خود را تغییر دهید.</p>
+                    </div>
+                  )}
+                </div>
+              )}
+              {!isLoading && totalPages > 1 && (
+                <div className="mt-16 flex justify-center">
+                  <div className="flex items-center bg-[#D9D9D9] rounded-full p-1 w-fit mx-auto shadow-sm">
+                    <button onClick={() => handlePageChange(safeCurrentPage - 1)} disabled={safeCurrentPage === 1} className="bg-[#303030] text-white w-12 h-10 rounded-r-full flex items-center justify-center hover:bg-black transition disabled:opacity-50"><FiChevronRight className="w-5 h-5" /></button>
+                    <div className="flex items-center px-6 gap-3">
+                      {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                        <React.Fragment key={page}>
+                          <button onClick={() => handlePageChange(page)} className={`w-8 h-8 flex items-center justify-center rounded-md font-bold transition-all ${safeCurrentPage === page ? 'bg-primary text-white shadow-md' : 'text-[#303030] hover:bg-black/10'}`}>{toFarsiNumber(page)}</button>
+                          {page < totalPages && <span className="text-[#303030]/40 font-light text-lg select-none">|</span>}
+                        </React.Fragment>
+                      ))}
+                    </div>
+                    <button onClick={() => handlePageChange(safeCurrentPage + 1)} disabled={safeCurrentPage === totalPages} className="bg-[#303030] text-white w-12 h-10 rounded-l-full flex items-center justify-center hover:bg-black transition disabled:opacity-50"><FiChevronLeft className="w-5 h-5" /></button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </section>
+      {isMobileFilterOpen && (
+        <div className="fixed inset-0 z-[60] lg:hidden flex justify-end">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setIsMobileFilterOpen(false)}></div>
+          <div className="relative h-full w-[85%] max-w-[320px] bg-background shadow-2xl overflow-y-auto animate-slideInRight">
+            <div className="sticky top-0 bg-background z-10 p-4 flex justify-end border-b border-gray-700/30">
+              <button onClick={() => setIsMobileFilterOpen(false)} className="text-gray-400 hover:text-primary transition"><FiX className="w-6 h-6" /></button>
+            </div>
+            <div className="p-4 pb-10"><ShopSidebar filters={filters} setFilters={handleFilterChange} /></div>
+          </div>
+        </div>
+      )}
+      <Footer />
+    </div>
+  );
+};
+export default Shop;
+=========================================
+📂 9. FRONTEND: src/pages/ProductDetail.jsx
+=========================================
+// src/pages/ProductDetail.jsx
+import React, { useState, useEffect } from 'react';
+import { useParams, Link } from 'react-router-dom';
+import { FiChevronLeft, FiShoppingCart, FiStar, FiSend, FiHeart, FiMinus, FiPlus, FiCheck, FiTruck, FiShield, FiSettings } from 'react-icons/fi';
+import { useCart } from '../Context/CartContext';
+import { fetchProductById, formatPrice } from '../utils/api';
+import Header from '../components/Header';
+import Footer from '../components/Footer';
+
+const StarRating = ({ filled = 5, size = "w-4 h-4" }) => (
+  <div className="flex gap-1">
+    {[1, 2, 3, 4, 5].map((s) => <FiStar key={s} className={`${size} ${s <= filled ? 'text-primary fill-primary' : 'text-gray-700'}`} />)}
+  </div>
+);
+
+const ProductDetail = () => {
+  const { id } = useParams();
+  const [product, setProduct] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('description');
+  const [quantity, setQuantity] = useState(1);
+  const [isFavorite, setIsFavorite] = useState(false);
+  const { addToCart } = useCart();
+
+  useEffect(() => {
+    const loadProduct = async () => {
+      setLoading(true);
+      const data = await fetchProductById(id);
+      setProduct(data);
+      setLoading(false);
+    };
+    loadProduct();
+  }, [id]);
+
+  if (loading) return <div dir="rtl" className="min-h-screen bg-background flex items-center justify-center"><span className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></span></div>;
+  if (!product) return (
+    <div dir="rtl" className="min-h-screen bg-background flex items-center justify-center">
+      <div className="text-center">
+        <h1 className="text-5xl font-bold text-white mb-4">404</h1>
+        <p className="text-gray-400 mb-6">محصول موردنظر وجود ندارد.</p>
+        <Link to="/shop" className="bg-primary text-white px-6 py-3 rounded-xl font-bold">بازگشت به فروشگاه</Link>
+      </div>
+    </div>
+  );
+
+  const hasDiscount = product.discount > 0;
+  const price = hasDiscount ? product.discountPrice : product.price;
+  
+  // ✅ Safe brand extraction
+  const brandName = product.brand_name || null;
+
+  return (
+    <div dir="rtl" className="min-h-screen bg-background font-sans text-gray-200">
+      <Header />
+      <div className="max-w-[1240px] mx-auto px-4 pt-6">
+        <div className="flex items-center gap-2 text-xs text-gray-500">
+          <Link to="/" className="hover:text-primary">خانه</Link>
+          <FiChevronLeft className="w-3 h-3" />
+          <Link to="/shop" className="hover:text-primary">فروشگاه</Link>
+          <FiChevronLeft className="w-3 h-3" />
+          <span className="text-gray-300 truncate max-w-[220px]">{product.title}</span>
+        </div>
+      </div>
+      <main className="max-w-[1240px] mx-auto px-4 py-8">
+        <div className="grid grid-cols-1 lg:grid-cols-[1.05fr_0.95fr] gap-8">
+          <div className="relative">
+            <div className="bg-[#FDF8E8]/[0.035] border border-white/10 rounded-[28px] p-5 relative">
+              <button onClick={() => setIsFavorite(!isFavorite)} className={`absolute top-8 right-8 z-10 w-11 h-11 rounded-full flex items-center justify-center border transition ${isFavorite ? 'bg-primary/15 border-primary text-primary' : 'bg-black/20 border-white/10 text-gray-400 hover:text-primary'}`}>
+                <FiHeart className={`w-5 h-5 ${isFavorite ? 'fill-current' : ''}`} />
+              </button>
+              {hasDiscount && <div className="absolute top-8 left-8 z-10 bg-primary text-white text-xs font-bold px-4 py-2 rounded-full">فروش ویژه</div>}
+              <div className="h-[420px] flex items-center justify-center">
+                <img src={product.image} alt={product.title} className="max-h-[360px] max-w-[90%] object-contain drop-shadow-[0_25px_35px_rgba(0,0,0,0.45)]" />
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-3 mt-4">
+              {[{icon: FiTruck, text: 'ارسال سریع'}, {icon: FiShield, text: 'خرید امن'}, {icon: FiCheck, text: 'ضمانت اصالت'}].map((item, i) => (
+                <div key={i} className="bg-white/[0.025] border border-white/10 rounded-2xl p-4 text-center">
+                  <item.icon className="mx-auto mb-2 text-primary" />
+                  <span className="text-[11px] text-gray-400">{item.text}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="flex flex-col">
+            {/* ✅ Safe Brand Display */}
+            {brandName && (
+              <span className="inline-block bg-white/10 text-primary text-xs px-3 py-1 rounded-full font-bold mb-2 w-fit">
+                برند: {brandName}
+              </span>
+            )}
+            <h1 className="text-3xl lg:text-4xl font-black text-white leading-tight">{product.title}</h1>
+            <p dir="ltr" className="text-sm text-gray-500 mt-2 text-right">{product.titleEn}</p>
+            <div className="flex items-center gap-3 mt-5 pb-6 border-b border-white/10">
+              <StarRating filled={5} />
+              <span className="text-xs text-gray-400">۵ از ۵</span>
+            </div>
+            <p className="text-sm text-gray-400 leading-7 mt-6">{product.description}</p>
+            
+            {/* ✅ Safe Attributes Display */}
+            {product.attributes && Array.isArray(product.attributes) && product.attributes.length > 0 && (
+              <div className="mt-8">
+                <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                  <FiSettings className="text-primary" /> ویژگی‌ها و مشخصات
+                </h3>
+                <div className="bg-white/[0.035] border border-white/10 rounded-2xl overflow-hidden">
+                  {product.attributes.map((attr, idx) => (
+                    <div key={attr.id || idx} className={`flex justify-between p-4 ${idx !== product.attributes.length - 1 ? 'border-b border-white/5' : ''}`}>
+                      <span className="text-gray-400 text-sm">{attr.name}</span>
+                      <span className="text-white text-sm font-medium text-left" dir="ltr">
+                        {attr.values && Array.isArray(attr.values) && attr.values.length > 0
+                          ? attr.values.map(v => v.value).join('، ') 
+                          : 'نامشخص'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ✅ Variants Display */}
+            {product.variants && Array.isArray(product.variants) && product.variants.length > 0 && (
+              <div className="mt-8">
+                <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                  <FiShoppingCart className="text-primary" /> واریانت‌های موجود
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {product.variants.map((variant, idx) => (
+                    <div key={variant.id} className="bg-white/[0.035] border border-white/10 rounded-xl p-4 flex justify-between items-center">
+                      <div>
+                        <div className="text-white font-bold text-sm">
+                          {variant.attributes && variant.attributes.length > 0 
+                            ? variant.attributes.map(a => `${a.name}: ${a.value}`).join(' | ') 
+                            : `واریانت #${idx + 1}`}
+                        </div>
+                        <div className="text-xs text-gray-500 mt-1">موجودی: {variant.stock_quantity !== null ? variant.stock_quantity : 'نامحدود'}</div>
+                      </div>
+                      <div className="text-primary font-black text-lg">{formatPrice(variant.final_price)} <span className="text-xs font-normal text-gray-400">تومان</span></div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center gap-2 mt-6">
+              <span className="w-2 h-2 rounded-full bg-green-400" />
+              <span className="text-xs text-green-400">موجود در انبار</span>
+            </div>
+            <div className="mt-5 bg-white/[0.035] border border-white/10 rounded-2xl p-5">
+              <div className="flex items-end justify-between gap-4">
+                <div>
+                  {hasDiscount && <div className="text-sm text-gray-500 line-through mb-1">{formatPrice(product.price)} تومان</div>}
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-3xl font-black text-white">{formatPrice(price)}</span>
+                    <span className="text-xs text-gray-500">تومان</span>
+                  </div>
+                </div>
+                <div className="flex items-center border border-white/10 rounded-xl overflow-hidden">
+                  <button onClick={() => setQuantity((q) => Math.max(1, q - 1))} className="w-10 h-10 flex items-center justify-center text-gray-400 hover:text-white hover:bg-white/5"><FiMinus /></button>
+                  <span className="w-10 text-center text-sm font-bold text-white">{quantity}</span>
+                  <button onClick={() => setQuantity((q) => q + 1)} className="w-10 h-10 flex items-center justify-center text-gray-400 hover:text-white hover:bg-white/5"><FiPlus /></button>
+                </div>
+              </div>
+              <button onClick={() => addToCart({ ...product, quantity })} className="w-full mt-5 bg-button hover:bg-button/90 text-white font-bold py-3.5 rounded-xl transition shadow-lg shadow-button/20 flex items-center justify-center gap-2">
+                <FiShoppingCart className="w-5 h-5" /> افزودن به سبد خرید
+              </button>
+            </div>
+          </div>
+        </div>
+      </main>
+      <Footer />
+    </div>
+  );
+};
+
+export default ProductDetail;
+=========================================
+📂 10. FRONTEND: src/pages/Admin.jsx
+=========================================
+// src/pages/Admin.jsx
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { FiHome, FiPackage, FiUsers, FiFileText, FiLogOut, FiPlus, FiX, FiCheck, FiAlertCircle, FiShoppingBag, FiSearch, FiEdit2, FiToggleLeft, FiToggleRight, FiImage, FiTrash2, FiTag } from 'react-icons/fi';
+import Header from '../components/Header';
+import Footer from '../components/Footer';
+
+const API_BASE_URL = 'http://127.0.0.1:8000/api/v1';
+
+const Admin = () => {
+  const navigate = useNavigate();
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [isAuthorized, setIsAuthorized] = useState(null);
+  
+  const [isAddProductOpen, setIsAddProductOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState(null); // For edit mode
+  const [partnerRequests, setPartnerRequests] = useState([]);
+  const [productsList, setProductsList] = useState([]);
+  const [logs, setLogs] = useState([]);
+  const [orders, setOrders] = useState([]);
+  const [selectedOrder, setSelectedOrder] = useState(null);
+  const [brands, setBrands] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [newBrandName, setNewBrandName] = useState('');
+  
+  const [dashboardStats, setDashboardStats] = useState({ 
+    total_users: 0, total_products: 0, pending_requests: 0,
+    total_orders: 0, pending_orders: 0, paid_orders: 0,
+    processing_orders: 0, shipped_orders: 0, deactivated_products: 0
+  });
+
+  const [approvingId, setApprovingId] = useState(null);
+  const [selectedGroup, setSelectedGroup] = useState('VISITOR');
+  const [productSearch, setProductSearch] = useState('');
+  const [showDeactivatedOnly, setShowDeactivatedOnly] = useState(false);
+
+  const [productTab, setProductTab] = useState('base');
+  const [productForm, setProductForm] = useState({
+    title: '', title_en: '', description: '', image_url: '', brand_id: '', category_id: '',
+    attributes: [{ name: '', values: [''] }],
+    variants: [{ price: '', stock_quantity: '', selectedValueIds: [] }]
+  });
+
+  useEffect(() => {
+    setIsAddProductOpen(false);
+    setEditingProduct(null);
+    setProductTab('base');
+  }, [activeTab]);
+
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) { setIsAuthorized(false); return; }
+    try {
+      const base64Url = token.split('.')[1];
+      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+      const jsonPayload = decodeURIComponent(atob(base64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
+      const payload = JSON.parse(jsonPayload);
+      setIsAuthorized(payload.is_admin === true);
+    } catch (e) { setIsAuthorized(false); }
+  }, []);
+
+  useEffect(() => {
+    if (isAuthorized !== true) return;
+    const token = localStorage.getItem('token');
+    const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
+
+    const fetchData = async () => {
+      try {
+        if (activeTab === 'dashboard') {
+          const res = await fetch(`${API_BASE_URL}/admin/stats`, { headers });
+          if (res.ok) setDashboardStats(await res.json());
+        } else if (activeTab === 'products') {
+          const res = await fetch(`${API_BASE_URL}/admin/products`, { headers });
+          if (res.ok) setProductsList(await res.json());
+          const resCats = await fetch(`${API_BASE_URL}/admin/categories`, { headers });
+          if (resCats.ok) setCategories(await resCats.json());
+          const resBrands = await fetch(`${API_BASE_URL}/admin/brands`, { headers });
+          if (resBrands.ok) setBrands(await resBrands.json());
+        } else if (activeTab === 'customers') {
+          const res = await fetch(`${API_BASE_URL}/admin/partner-requests`, { headers });
+          if (res.ok) setPartnerRequests(await res.json());
+        } else if (activeTab === 'logs') {
+          const res = await fetch(`${API_BASE_URL}/admin/audit-logs?limit=50`, { headers });
+          if (res.ok) setLogs(await res.json());
+        } else if (activeTab === 'orders') {
+          const res = await fetch(`${API_BASE_URL}/admin/orders`, { headers });
+          if (res.ok) setOrders(await res.json());
+        } else if (activeTab === 'brands') {
+          const res = await fetch(`${API_BASE_URL}/admin/brands`, { headers });
+          if (res.ok) setBrands(await res.json());
+        } else if (activeTab === 'categories') {
+          const resCats = await fetch(`${API_BASE_URL}/admin/categories`, { headers });
+          if (resCats.ok) setCategories(await resCats.json());
+        }
+      } catch (error) { console.error(error); }
+    };
+    fetchData();
+  }, [activeTab, isAuthorized]);
+
+  const handleCreateOrUpdateProduct = async () => {
+    const token = localStorage.getItem('token');
+    const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
+    try {
+      let productId = editingProduct ? editingProduct.id : null;
+
+      // 1. Create or Update Basic Product Info
+      if (!editingProduct) {
+        const res1 = await fetch(`${API_BASE_URL}/admin/products/`, { 
+          method: 'POST', headers, 
+          body: JSON.stringify({ 
+            title: productForm.title, title_en: productForm.title_en, 
+            description: productForm.description, image_url: productForm.image_url,
+            brand_id: productForm.brand_id ? parseInt(productForm.brand_id) : null,
+            category_id: productForm.category_id ? parseInt(productForm.category_id) : null
+          }) 
+        });
+        if (!res1.ok) throw new Error('خطا در ایجاد محصول');
+        const productData = await res1.json();
+        productId = productData.id;
+      } else {
+        // UPDATE existing product with ALL data (basic + attributes + variants)
+        await fetch(`${API_BASE_URL}/admin/products/${productId}`, {
+          method: 'PUT', headers,
+          body: JSON.stringify({
+            title: productForm.title, title_en: productForm.title_en,
+            description: productForm.description, image_url: productForm.image_url,
+            brand_id: productForm.brand_id ? parseInt(productForm.brand_id) : null,
+            category_id: productForm.category_id ? parseInt(productForm.category_id) : null,
+            attributes: productForm.attributes.map(a => ({
+              name: a.name,
+              values: a.values.filter(v => v)
+            })),
+            variants: productForm.variants.map(v => ({
+              sku: v.sku || `VAR-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+              price: parseFloat(v.price) || 0,
+              stock_quantity: parseInt(v.stock_quantity) || 0,
+              selectedValueIds: v.selectedValueIds.filter(id => typeof id === 'number' || typeof id === 'string')
+            }))
+          })
+        });
+      }
+
+      // 2. Handle attributes and variants for NEW products only (PUT handles updates)
+      if (!editingProduct && productId) {
+        for (const attr of productForm.attributes) {
+          if (!attr.name) continue;
+          const resAttr = await fetch(`${API_BASE_URL}/admin/products/${productId}/attributes`, { method: 'POST', headers, body: JSON.stringify({ name: attr.name }) });
+          if (resAttr.ok) {
+            const attrData = await resAttr.json();
+            for (const val of attr.values) {
+              if (!val) continue;
+              await fetch(`${API_BASE_URL}/admin/products/attributes/${attrData.id}/values`, { method: 'POST', headers, body: JSON.stringify({ value: val }) });
+            }
+          }
+        }
+
+        for (const variant of productForm.variants) {
+          if (!variant.price && !variant.stock_quantity) continue;
+          const validSelectedIds = variant.selectedValueIds.filter(id => typeof id === 'number' || typeof id === 'string');
+          await fetch(`${API_BASE_URL}/admin/products/${productId}/variants`, {
+            method: 'POST', headers,
+            body: JSON.stringify({ 
+              sku: variant.sku || `VAR-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+              purchase_cost: parseFloat(variant.price) || 0,
+              price_normal: parseFloat(variant.price) || 0,
+              price_visitor: parseFloat(variant.price) || 0,
+              price_shop_owner: parseFloat(variant.price) || 0,
+              price_wholesale: parseFloat(variant.price) || 0,
+              stock_quantity: parseInt(variant.stock_quantity) || 0, 
+              attribute_value_ids: validSelectedIds
+            })
+          });
+        }
+      }
+
+      alert(editingProduct ? 'محصول با موفقیت بروزرسانی شد!' : 'محصول با موفقیت ثبت شد!');
+      setIsAddProductOpen(false);
+      setEditingProduct(null);
+      setProductForm({ title: '', title_en: '', description: '', image_url: '', brand_id: '', category_id: '', attributes: [{ name: '', values: [''] }], variants: [{ price: '', stock_quantity: '', selectedValueIds: [] }] });
+      const resList = await fetch(`${API_BASE_URL}/admin/products`, { headers });
+      if (resList.ok) setProductsList(await resList.json());
+    } catch (error) {
+      console.error(error);
+      alert('خطای شبکه: ' + error.message);
+    }
+  };
+
+  const handleDeleteProduct = async (productId) => {
+    if (!window.confirm('آیا از حذف این محصول اطمینان دارید؟')) return;
+    const token = localStorage.getItem('token');
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/products/${productId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        setProductsList(productsList.filter(p => p.id !== productId));
+      } else {
+        alert('خطا در حذف محصول');
+      }
+    } catch (error) {
+      alert('خطای شبکه');
+    }
+  };
+
+  
+
+
+  const [newCatName, setNewCatName] = useState('');
+  const handleEditProduct = async (product) => {
+    setEditingProduct(product);
+    setIsAddProductOpen(true);
+    setProductTab('base');
+    
+    const token = localStorage.getItem('token');
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/products/${product.id}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        console.log("✅ Loaded product data for edit:", data);
+        
+        setProductForm({
+          title: data.title || '',
+          title_en: data.title_en || '',
+          description: data.description || '',
+          image_url: data.image_url || '',
+          brand_id: data.brand_id ? String(data.brand_id) : '',
+          category_id: data.category_id ? String(data.category_id) : '',
+          attributes: data.attributes && data.attributes.length > 0 
+            ? data.attributes 
+            : [{ name: '', values: [''] }],
+          variants: data.variants && data.variants.length > 0 
+            ? data.variants.map(v => ({
+                id: v.id,
+                sku: v.sku || '',
+                price: String(v.price || ''),
+                stock_quantity: String(v.stock_quantity || ''),
+                selectedValueIds: v.selectedValueIds || []
+              }))
+            : [{ price: '', stock_quantity: '', selectedValueIds: [] }]
+        });
+      } else {
+        alert('خطا در دریافت اطلاعات محصول');
+      }
+    } catch (error) {
+      console.error("Failed to load product details", error);
+      alert('خطای شبکه در دریافت اطلاعات محصول');
+    }
+  };
+
+  const handleAddCategory = async (e) => {
+    e.preventDefault();
+    if (!newCatName.trim()) return;
+    const token = localStorage.getItem('token');
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/categories`, {
+        method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newCatName })
+      });
+      if (res.ok) {
+        setNewCatName('');
+        const resCats = await fetch(`${API_BASE_URL}/admin/categories`, { headers: { 'Authorization': `Bearer ${token}` } });
+        if (resCats.ok) setCategories(await resCats.json());
+      }
+    } catch (error) { alert('خطا در افزودن دسته‌بندی'); }
+  };
+
+  const handleDeleteCategory = async (catId) => {
+    if (!window.confirm('آیا از حذف این دسته‌بندی اطمینان دارید؟')) return;
+    const token = localStorage.getItem('token');
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/categories/${catId}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
+      if (res.ok) setCategories(categories.filter(c => c.id !== catId));
+      else alert('خطا در حذف دسته‌بندی');
+    } catch (error) { alert('خطای شبکه'); }
+  };
+  const handleAddBrand = async (e) => {
+    e.preventDefault();
+    if (!newBrandName.trim()) return;
+    const token = localStorage.getItem('token');
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/brands`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newBrandName })
+      });
+      if (res.ok) {
+        setNewBrandName('');
+        const resBrands = await fetch(`${API_BASE_URL}/admin/brands`, { headers: { 'Authorization': `Bearer ${token}` } });
+        if (resBrands.ok) setBrands(await resBrands.json());
+      }
+    } catch (error) {
+      alert('خطا در افزودن برند');
+    }
+  };
+
+  const handleDeleteBrand = async (brandId) => {
+    if (!window.confirm('آیا از حذف این برند اطمینان دارید؟')) return;
+    const token = localStorage.getItem('token');
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/brands/${brandId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        setBrands(brands.filter(b => b.id !== brandId));
+      } else {
+        alert('خطا در حذف برند');
+      }
+    } catch (error) {
+      alert('خطای شبکه');
+    }
+  };
+
+  // ... (Keep handleApprove, handleReject, handleUpdateOrderStatus, handleToggleProductStatus as they were) ...
+  const handleApprove = async (id) => {
+    const token = localStorage.getItem('token');
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/partner-requests/${id}/approve`, {
+        method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customer_group: selectedGroup })
+      });
+      if (res.ok) {
+        setApprovingId(null);
+        const res2 = await fetch(`${API_BASE_URL}/admin/partner-requests`, { headers: { 'Authorization': `Bearer ${token}` } });
+        if (res2.ok) setPartnerRequests(await res2.json());
+      } else { alert('خطا در تایید'); }
+    } catch (error) { alert('خطای شبکه'); }
+  };
+
+  const handleReject = async (id) => {
+    const token = localStorage.getItem('token');
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/partner-requests/${id}/reject`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
+      if (res.ok) {
+        const res2 = await fetch(`${API_BASE_URL}/admin/partner-requests`, { headers: { 'Authorization': `Bearer ${token}` } });
+        if (res2.ok) setPartnerRequests(await res2.json());
+      }
+    } catch (error) { alert('خطای شبکه'); }
+  };
+
+  const handleUpdateOrderStatus = async (orderId, newStatus) => {
+    const token = localStorage.getItem('token');
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/orders/${orderId}/status`, {
+        method: 'PUT', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus, notes: '' })
+      });
+      if (res.ok) {
+        alert('وضعیت سفارش بروزرسانی شد');
+        const res2 = await fetch(`${API_BASE_URL}/admin/orders`, { headers: { 'Authorization': `Bearer ${token}` } });
+        if (res2.ok) setOrders(await res2.json());
+        setSelectedOrder(null);
+      } else { alert('خطا در بروزرسانی'); }
+    } catch (error) { alert('خطای شبکه'); }
+  };
+
+  const handleToggleProductStatus = async (productId, currentActive) => {
+    const token = localStorage.getItem('token');
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/products/${productId}`, {
+        method: 'PUT', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_active: !currentActive })
+      });
+      if (res.ok) {
+        const res2 = await fetch(`${API_BASE_URL}/admin/products`, { headers: { 'Authorization': `Bearer ${token}` } });
+        if (res2.ok) setProductsList(await res2.json());
+      }
+    } catch (error) { alert('خطای شبکه'); }
+  };
+
+  if (isAuthorized === false) {
+    return (
+      <div dir="rtl" className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center p-8 bg-white/5 rounded-3xl border border-red-500/20">
+          <FiAlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+          <h1 className="text-3xl font-black text-white mb-2">دسترسی غیرمجاز</h1>
+          <p className="text-gray-400">شما مجوز ورود به این بخش را ندارید.</p>
+          <button onClick={() => navigate('/profile')} className="mt-6 text-primary hover:underline font-bold">بازگشت به پروفایل</button>
+        </div>
+      </div>
+    );
+  }
+  if (isAuthorized === null) return <div className="min-h-screen bg-background flex items-center justify-center text-white">در حال بررسی...</div>;
+
+  const navItems = [
+    { id: 'dashboard', label: 'داشبورد', icon: FiHome },
+    { id: 'orders', label: 'مدیریت سفارشات', icon: FiShoppingBag },
+    { id: 'products', label: 'مدیریت محصولات', icon: FiPackage },
+    { id: 'brands', label: 'مدیریت برندها', icon: FiTag },
+    { id: 'categories', label: 'مدیریت دسته‌بندی‌ها', icon: FiTag }, // ✅ NEW
+    { id: 'customers', label: 'درخواست‌های همکاری', icon: FiUsers },
+    { id: 'logs', label: 'گزارشات سیستم', icon: FiFileText },
+  ];
+
+  const filteredProducts = productsList.filter(p => {
+    const matchesSearch = p.title.toLowerCase().includes(productSearch.toLowerCase()) || p.title_en.toLowerCase().includes(productSearch.toLowerCase());
+    return showDeactivatedOnly ? (matchesSearch && p.is_active === false) : matchesSearch;
+  });
+
+  const allAttrValues = productForm.attributes.flatMap((attr, aIdx) => 
+    attr.values.filter(v => v).map((val, vIdx) => ({ id: `${aIdx}-${vIdx}`, label: `${attr.name}: ${val}` }))
+  );
+
+  return (
+    <div dir="rtl" className="min-h-screen bg-background font-sans text-gray-200 flex flex-col">
+      <Header />
+      <main className="flex-1 max-w-[1400px] w-full mx-auto px-4 py-8 flex gap-6">
+        <aside className="w-[250px] shrink-0 hidden md:block">
+          <div className="bg-white/[0.035] border border-white/10 rounded-2xl p-4 sticky top-24">
+            <div className="mb-6 pb-4 border-b border-white/10"><h2 className="text-lg font-bold text-primary">پنل مدیریت</h2></div>
+            <nav className="space-y-1">
+              {navItems.map((item) => (
+                <button key={item.id} onClick={() => { setActiveTab(item.id); setShowDeactivatedOnly(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition text-sm font-medium ${activeTab === item.id ? 'bg-primary/10 text-primary border border-primary/20' : 'text-gray-400 hover:bg-white/5 border border-transparent'}`}>
+                  <item.icon className="w-4 h-4" /> {item.label}
+                </button>
+              ))}
+              <button onClick={() => { localStorage.removeItem('token'); navigate('/'); }} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition text-sm font-medium text-red-400 hover:bg-red-500/10 mt-6 border border-transparent">
+                <FiLogOut className="w-4 h-4" /> خروج
+              </button>
+            </nav>
+          </div>
+        </aside>
+
+        <div className="flex-1 bg-white/[0.035] border border-white/10 rounded-2xl p-6 min-h-[600px] relative">
+          {activeTab === 'dashboard' && (
+            <div>
+              <h1 className="text-2xl font-bold text-white mb-6">داشبورد مدیریت</h1>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                <div className="bg-white/[0.025] border border-white/10 rounded-2xl p-6 text-center">
+                  <FiUsers className="w-10 h-10 text-primary mx-auto mb-3" />
+                  <h3 className="text-3xl font-black text-white mb-1">{dashboardStats.total_users}</h3>
+                  <p className="text-sm text-gray-400">کل کاربران</p>
+                </div>
+                <div className="bg-white/[0.025] border border-white/10 rounded-2xl p-6 text-center">
+                  <FiPackage className="w-10 h-10 text-blue-400 mx-auto mb-3" />
+                  <h3 className="text-3xl font-black text-white mb-1">{dashboardStats.total_products}</h3>
+                  <p className="text-sm text-gray-400">کل محصولات</p>
+                </div>
+                <div className="bg-white/[0.025] border border-white/10 rounded-2xl p-6 text-center">
+                  <FiAlertCircle className="w-10 h-10 text-yellow-400 mx-auto mb-3" />
+                  <h3 className="text-3xl font-black text-white mb-1">{dashboardStats.pending_requests}</h3>
+                  <p className="text-sm text-gray-400">درخواست‌های همکاری در انتظار</p>
+                </div>
+              </div>
+              <h2 className="text-xl font-bold text-white mb-4">آمار سفارشات و محصولات</h2>
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                <div className="bg-white/[0.025] border border-white/10 rounded-xl p-4 text-center"><h3 className="text-2xl font-black text-white mb-1">{dashboardStats.total_orders}</h3><p className="text-xs text-gray-400">کل سفارشات</p></div>
+                <div className="bg-white/[0.025] border border-white/10 rounded-xl p-4 text-center"><h3 className="text-2xl font-black text-yellow-400 mb-1">{dashboardStats.pending_orders}</h3><p className="text-xs text-gray-400">در انتظار پرداخت</p></div>
+                <div className="bg-white/[0.025] border border-white/10 rounded-xl p-4 text-center"><h3 className="text-2xl font-black text-green-400 mb-1">{dashboardStats.paid_orders}</h3><p className="text-xs text-gray-400">پرداخت شده</p></div>
+                <div className="bg-white/[0.025] border border-white/10 rounded-xl p-4 text-center"><h3 className="text-2xl font-black text-blue-400 mb-1">{dashboardStats.processing_orders}</h3><p className="text-xs text-gray-400">در حال پردازش</p></div>
+                <div className="bg-white/[0.025] border border-red-500/20 rounded-xl p-4 text-center cursor-pointer hover:bg-red-500/10 transition" onClick={() => { setActiveTab('products'); setShowDeactivatedOnly(true); }}>
+                  <h3 className="text-2xl font-black text-red-400 mb-1">{dashboardStats.deactivated_products}</h3>
+                  <p className="text-xs text-gray-400">محصولات غیرفعال (کلیک کنید)</p>
+                </div>
+              </div>
+            </div>
+          )}
+          {activeTab === 'categories' && (
+            <div>
+              <h1 className="text-2xl font-bold text-white mb-6">مدیریت دسته‌بندی‌ها</h1>
+              <form onSubmit={handleAddCategory} className="flex gap-4 mb-8">
+                <input 
+                  type="text" 
+                  placeholder="نام دسته‌بندی جدید" 
+                  value={newCatName} 
+                  onChange={(e) => setNewCatName(e.target.value)} 
+                  className="flex-1 bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-white outline-none focus:border-primary" 
+                />
+                <button type="submit" className="bg-primary hover:bg-primary/90 text-white px-6 py-3 rounded-xl font-bold transition">افزودن دسته‌بندی</button>
+              </form>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {categories.map(cat => (
+                  <div key={cat.id} className="bg-white/[0.025] border border-white/10 rounded-xl p-4 flex flex-col items-center gap-3 relative group">
+                    <h3 className="font-bold text-white">{cat.name}</h3>
+                    <button 
+                      onClick={() => handleDeleteCategory(cat.id)} 
+                      className="absolute top-2 left-2 p-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition opacity-0 group-hover:opacity-100" 
+                      title="حذف"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {activeTab === 'brands' && (
+            <div>
+              <h1 className="text-2xl font-bold text-white mb-6">مدیریت برندها</h1>
+              <form onSubmit={handleAddBrand} className="flex gap-4 mb-8">
+                <input 
+                  type="text" 
+                  placeholder="نام برند جدید" 
+                  value={newBrandName}
+                  onChange={(e) => setNewBrandName(e.target.value)}
+                  className="flex-1 bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-white outline-none focus:border-primary"
+                />
+                <button type="submit" className="bg-primary hover:bg-primary/90 text-white px-6 py-3 rounded-xl font-bold transition">افزودن برند</button>
+              </form>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {brands.map(brand => (
+                  <div key={brand.id} className="bg-white/[0.025] border border-white/10 rounded-xl p-4 flex flex-col items-center gap-3 relative group">
+                    <h3 className="font-bold text-white">{brand.name}</h3>
+                    <button 
+                      onClick={() => handleDeleteBrand(brand.id)}
+                      className="absolute top-2 left-2 p-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition opacity-0 group-hover:opacity-100"
+                      title="حذف برند"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'products' && (
+            <div>
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+                <h1 className="text-2xl font-bold text-white">مدیریت محصولات {showDeactivatedOnly && <span className="text-red-400 text-lg">(فقط غیرفعال‌ها)</span>}</h1>
+                <div className="flex gap-2">
+                  {showDeactivatedOnly && <button onClick={() => setShowDeactivatedOnly(false)} className="flex items-center gap-2 bg-red-500/20 text-red-400 px-4 py-2 rounded-xl text-sm font-bold transition">نمایش همه</button>}
+                  <button onClick={() => { 
+    setEditingProduct(null); 
+    setProductForm({ 
+      title: '', title_en: '', description: '', image_url: '', brand_id: '', category_id: '', 
+      attributes: [{ name: '', values: [''] }], 
+      variants: [{ price: '', stock_quantity: '', selectedValueIds: [] }] 
+    }); 
+    setIsAddProductOpen(true); 
+    setProductTab('base'); 
+  }} className="flex items-center gap-2 bg-primary hover:bg-primary/90 text-white px-4 py-2 rounded-xl text-sm font-bold transition">
+                    <FiPlus /> افزودن محصول جدید
+                  </button>
+                </div>
+              </div>
+              <div className="mb-4">
+                <div className="relative">
+                  <FiSearch className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500" />
+                  <input type="text" placeholder="جستجوی محصول..." value={productSearch} onChange={(e) => setProductSearch(e.target.value)} className="w-full bg-black/20 border border-white/10 rounded-xl pr-12 pl-4 py-3 text-white outline-none focus:border-primary" />
+                </div>
+              </div>
+              <div className="space-y-3 max-h-[600px] overflow-y-auto">
+                {filteredProducts.length === 0 ? <p className="text-gray-500 text-center py-10">محصولی یافت نشد.</p> : filteredProducts.map(p => (
+                  <div key={p.id} className="bg-white/[0.025] border border-white/10 rounded-xl p-4 flex justify-between items-center">
+                    <div>
+                      <h3 className={`font-bold ${p.is_active ? 'text-white' : 'text-gray-500 line-through'}`}>{p.title}</h3>
+                      <p className="text-xs text-gray-400">{p.title_en}</p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className={`text-xs px-3 py-1 rounded-lg ${p.is_active ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>{p.is_active ? 'فعال' : 'غیرفعال'}</span>
+                      <button onClick={() => handleEditProduct(p)} className="p-2 rounded-lg bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 transition" title="ویرایش"><FiEdit2 /></button>
+                      <button onClick={() => handleDeleteProduct(p.id)} className="p-2 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30 transition" title="حذف"><FiTrash2 /></button>
+                      <button onClick={() => handleToggleProductStatus(p.id, p.is_active)} className={`p-2 rounded-lg transition ${p.is_active ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30' : 'bg-red-500/20 text-red-400 hover:bg-red-500/30'}`} title={p.is_active ? "غیرفعال کردن" : "فعال کردن"}>
+                        {p.is_active ? <FiToggleRight size={24} /> : <FiToggleLeft size={24} />}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ... (Keep orders, customers, logs tabs exactly as they were) ... */}
+          {activeTab === 'orders' && (
+            <div>
+              <h1 className="text-2xl font-bold text-white mb-6">مدیریت سفارشات</h1>
+              <div className="space-y-3">
+                {orders.length === 0 ? <p className="text-gray-500 text-center py-10">سفارشی یافت نشد.</p> : orders.map(order => (
+                  <div key={order.id} className="bg-white/[0.025] border border-white/10 rounded-xl p-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                    <div>
+                      <h3 className="font-bold text-white">سفارش #{order.id}</h3>
+                      <p className="text-xs text-gray-400">مشتری: {order.user_name} ({order.user_phone})</p>
+                      <p className="text-xs text-gray-400">{order.province}، {order.city} | {order.total_items} کالا</p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className={`text-xs px-3 py-1 rounded-lg ${order.status === 'pending_payment' ? 'bg-yellow-500/20 text-yellow-400' : order.status === 'paid' ? 'bg-green-500/20 text-green-400' : order.status === 'processing' ? 'bg-blue-500/20 text-blue-400' : 'bg-purple-500/20 text-purple-400'}`}>
+                        {order.status === 'pending_payment' ? 'در انتظار پرداخت' : order.status === 'paid' ? 'پرداخت شده' : order.status === 'processing' ? 'در حال پردازش' : 'ارسال شده'}
+                      </span>
+                      <span className="text-white font-bold">{parseFloat(order.total_price).toLocaleString()} تومان</span>
+                      <button onClick={() => setSelectedOrder(order)} className="text-primary hover:text-primary/80 p-2 bg-white/5 rounded-lg"><FiEdit2 /></button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'customers' && (
+            <div>
+              <h1 className="text-2xl font-bold text-white mb-6">درخواست‌های همکاری</h1>
+              <div className="space-y-4">
+                {partnerRequests.length === 0 ? <p className="text-gray-500 text-center py-10">درخواستی وجود ندارد.</p> : partnerRequests.map(req => (
+                  <div key={req.id} className="bg-white/[0.025] border border-white/10 rounded-xl p-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                    <div>
+                      <h3 className="font-bold text-white">{req.business_name}</h3>
+                      <p className="text-sm text-gray-400">{req.description}</p>
+                    </div>
+                    <div className="flex gap-2 w-full md:w-auto">
+                      {approvingId === req.id ? (
+                        <div className="flex gap-2 w-full md:w-auto items-center">
+                          <select value={selectedGroup} onChange={(e) => setSelectedGroup(e.target.value)} className="bg-black/40 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white outline-none focus:border-primary">
+                            <option value="VISITOR">ویزیتور</option>
+                            <option value="SHOP_OWNER">مغازه‌دار</option>
+                            <option value="WHOLESALE">عمده‌فروش</option>
+                          </select>
+                          <button onClick={() => handleApprove(req.id)} className="px-3 py-1.5 bg-green-500 text-white rounded-lg text-xs hover:bg-green-600 font-bold">تایید نهایی</button>
+                          <button onClick={() => setApprovingId(null)} className="px-3 py-1.5 bg-gray-600 text-white rounded-lg text-xs hover:bg-gray-700">انصراف</button>
+                        </div>
+                      ) : (
+                        <>
+                          <button onClick={() => setApprovingId(req.id)} className="px-3 py-1.5 bg-green-500/10 text-green-400 rounded-lg text-xs hover:bg-green-500/20 border border-green-500/20 font-bold">تایید و انتخاب گروه</button>
+                          <button onClick={() => handleReject(req.id)} className="px-3 py-1.5 bg-red-500/10 text-red-400 rounded-lg text-xs hover:bg-red-500/20 border border-red-500/20 font-bold">رد درخواست</button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'logs' && (
+            <div>
+              <h1 className="text-2xl font-bold text-white mb-6">گزارشات سیستم</h1>
+              <div className="space-y-2 max-h-[600px] overflow-y-auto">
+                {logs.length === 0 ? <p className="text-gray-500 text-center py-10">گزارشی وجود ندارد.</p> : logs.map(log => (
+                  <div key={log.id} className="bg-white/[0.025] border border-white/10 rounded-lg p-3 text-sm flex justify-between">
+                    <span className="text-primary font-bold">{log.action}</span>
+                    <span className="text-gray-400">{log.target_type} #{log.target_id}</span>
+                    <span className="text-gray-500 text-xs">{new Date(log.created_at).toLocaleString('fa-IR')}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ✅ REVAMPED: Tabbed, Dynamic Add/Edit Product Modal */}
+          {isAddProductOpen && (
+            <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm rounded-2xl">
+              <div className="bg-[#1a1a1a] border border-white/10 rounded-2xl w-full max-w-4xl p-6 shadow-2xl flex flex-col max-h-[90vh]">
+                <div className="flex justify-between items-center mb-6 border-b border-white/10 pb-4">
+                  <h2 className="text-xl font-bold text-white">{editingProduct ? 'ویرایش محصول' : 'افزودن محصول جدید'}</h2>
+                  <button onClick={() => { setIsAddProductOpen(false); setEditingProduct(null); }} className="text-gray-400 hover:text-white"><FiX size={24} /></button>
+                </div>
+
+                <div className="flex border-b border-white/10 mb-6">
+                  <button onClick={() => setProductTab('base')} className={`py-3 px-6 font-bold transition ${productTab === 'base' ? 'text-primary border-b-2 border-primary' : 'text-gray-500'}`}>۱. اطلاعات پایه</button>
+                  <button onClick={() => setProductTab('attrs')} className={`py-3 px-6 font-bold transition ${productTab === 'attrs' ? 'text-primary border-b-2 border-primary' : 'text-gray-500'}`}>۲. ویژگی‌ها و مشخصات</button>
+
+                  <button onClick={() => setProductTab('variants')} className={`py-3 px-6 font-bold transition ${productTab === 'variants' ? 'text-primary border-b-2 border-primary' : 'text-gray-500'}`}>۳. واریانت‌ها</button>
+
+                </div>
+
+                <div className="flex-1 overflow-y-auto pr-2 mb-6">
+                  {productTab === 'base' && (
+                    <div className="space-y-4">
+                      <input type="text" placeholder="نام محصول" value={productForm.title} onChange={e => setProductForm({...productForm, title: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white outline-none focus:border-primary" />
+                      <input type="text" placeholder="نام محصول (انگلیسی)" value={productForm.title_en} onChange={e => setProductForm({...productForm, title_en: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white outline-none focus:border-primary" dir="ltr" />
+                      
+                      {/* ✅ CATEGORY DROPDOWN */}
+                      <select 
+                        value={productForm.category_id} 
+                        onChange={e => setProductForm({...productForm, category_id: e.target.value})}
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white outline-none focus:border-primary appearance-none mb-4"
+                      >
+                        <option value="">انتخاب دسته‌بندی (اختیاری)</option>
+                        {categories.map(c => <option key={c.id} value={c.id} className="text-black">{c.name}</option>)}
+                      </select>
+
+                      {/* ✅ BRAND DROPDOWN */}
+                      <select 
+                        value={productForm.brand_id} 
+                        onChange={e => setProductForm({...productForm, brand_id: e.target.value})}
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white outline-none focus:border-primary appearance-none"
+                      >
+                        <option value="">انتخاب برند (اختیاری)</option>
+                        {brands.map(b => <option key={b.id} value={b.id} className="text-black">{b.name}</option>)}
+                      </select>
+
+                      <div className="relative">
+                        <FiImage className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500" />
+                        <input type="text" placeholder="لینک تصویر محصول (URL)" value={productForm.image_url} onChange={e => setProductForm({...productForm, image_url: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl pr-12 pl-4 py-3 text-white outline-none focus:border-primary" dir="ltr" />
+                      </div>
+                      <textarea placeholder="توضیحات" value={productForm.description} onChange={e => setProductForm({...productForm, description: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white outline-none focus:border-primary h-32" />
+                    </div>
+                  )}
+
+                  {productTab === 'attrs' && (
+                    <div className="space-y-4">
+                      {productForm.attributes.map((attr, attrIndex) => (
+                        <div key={attrIndex} className="bg-white/5 rounded-xl p-4 border border-white/5 space-y-3">
+                          <input type="text" placeholder="نام ویژگی" value={attr.name} onChange={e => {
+                            const newAttrs = [...productForm.attributes];
+                            newAttrs[attrIndex].name = e.target.value;
+                            setProductForm({...productForm, attributes: newAttrs});
+                          }} className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none" dir="ltr" />
+                          <div className="flex flex-wrap gap-2">
+                            {attr.values.map((val, valIndex) => (
+                              <input key={valIndex} type="text" placeholder="مقدار" value={val} onChange={e => {
+                                const newAttrs = [...productForm.attributes];
+                                newAttrs[attrIndex].values[valIndex] = e.target.value;
+                                setProductForm({...productForm, attributes: newAttrs});
+                              }} className="flex-1 min-w-[100px] bg-black/40 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white outline-none" dir="ltr" />
+                            ))}
+                            <button onClick={() => {
+                              const newAttrs = [...productForm.attributes];
+                              newAttrs[attrIndex].values.push('');
+                              setProductForm({...productForm, attributes: newAttrs});
+                            }} className="bg-green-500/20 text-green-400 px-3 rounded-lg text-xs hover:bg-green-500/30">+ مقدار</button>
+                          </div>
+                        </div>
+                      ))}
+                      <button onClick={() => setProductForm(prev => ({...prev, attributes: [...prev.attributes, { name: '', values: [''] }]}))} className="text-sm text-primary hover:underline">+ افزودن ویژگی جدید</button>
+                    </div>
+                  )}
+
+                  {productTab === 'variants' && (
+                    <div className="space-y-4">
+                      {productForm.variants.map((variant, vIdx) => (
+                        <div key={vIdx} className="bg-white/5 rounded-xl p-4 border border-white/10 space-y-3">
+                          <div className="flex justify-between items-center">
+                            <h4 className="text-sm font-bold text-primary">واریانت #{vIdx + 1}</h4>
+                            {productForm.variants.length > 1 && (
+                              <button onClick={() => {
+                                const newVariants = productForm.variants.filter((_, i) => i !== vIdx);
+                                setProductForm({...productForm, variants: newVariants});
+                              }} className="text-red-400 hover:text-red-300"><FiTrash2 /></button>
+                            )}
+                          </div>
+                          <div className="bg-black/20 rounded-lg p-3 border border-white/5">
+                            <p className="text-xs text-gray-400 mb-2">انتخاب ویژگی‌ها برای این واریانت:</p>
+                            <div className="flex flex-wrap gap-2">
+                              {allAttrValues.map(av => {
+                                const isSelected = variant.selectedValueIds.includes(av.id);
+                                return (
+                                  <button key={av.id} onClick={() => {
+                                    const newVariants = [...productForm.variants];
+                                    const currentIds = newVariants[vIdx].selectedValueIds;
+                                    newVariants[vIdx].selectedValueIds = isSelected ? currentIds.filter(id => id !== av.id) : [...currentIds, av.id];
+                                    setProductForm({...productForm, variants: newVariants});
+                                  }} className={`px-3 py-1 rounded-lg text-xs transition ${isSelected ? 'bg-primary text-white' : 'bg-white/10 text-gray-400 hover:bg-white/20'}`}>
+                                    {av.label}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-xs text-gray-400 mb-1">قیمت فروش (تومان)</label>
+                              <input type="number" placeholder="قیمت" value={variant.price} onChange={e => {
+                                const newVariants = [...productForm.variants];
+                                newVariants[vIdx].price = e.target.value;
+                                setProductForm({...productForm, variants: newVariants});
+                              }} className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none" dir="ltr" />
+                            </div>
+                            <div>
+                              <label className="block text-xs text-gray-400 mb-1">موجودی انبار</label>
+                              <input type="number" placeholder="موجودی" value={variant.stock_quantity} onChange={e => {
+                                const newVariants = [...productForm.variants];
+                                newVariants[vIdx].stock_quantity = e.target.value;
+                                setProductForm({...productForm, variants: newVariants});
+                              }} className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none" dir="ltr" />
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                      <button onClick={() => setProductForm(prev => ({...prev, variants: [...prev.variants, { price: '', stock_quantity: '', selectedValueIds: [] }]}))} className="w-full py-3 border-2 border-dashed border-white/20 text-gray-400 rounded-xl hover:border-primary hover:text-primary transition font-bold">
+                        + افزودن واریانت جدید
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex justify-between pt-4 border-t border-white/10">
+                  <button onClick={() => {
+                    if (productTab === 'attrs') setProductTab('base');
+                    else if (productTab === 'variants') setProductTab('attrs');
+                  }} className={`px-6 py-3 rounded-xl font-bold transition ${productTab === 'base' ? 'invisible' : 'bg-white/5 text-white hover:bg-white/10'}`}>
+                    قبلی
+                  </button>
+                  
+                  {productTab === 'variants' || editingProduct ? (
+                    <button onClick={handleCreateOrUpdateProduct} className="px-8 py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl transition flex items-center gap-2">
+                      <FiCheck /> {editingProduct ? 'ذخیره تغییرات' : 'ثبت نهایی محصول'}
+                    </button>
+                  ) : (
+                    <button onClick={() => {
+                      if (productTab === 'base') setProductTab('attrs');
+                      else if (productTab === 'attrs') setProductTab('variants');
+                    }} className="px-8 py-3 bg-primary hover:bg-primary/90 text-white font-bold rounded-xl transition flex items-center gap-2">
+                      مرحله بعد
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {selectedOrder && (
+            <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm rounded-2xl">
+              <div className="bg-[#1a1a1a] border border-white/10 rounded-2xl w-full max-w-2xl p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+                <div className="flex justify-between items-center mb-6 border-b border-white/10 pb-4 sticky top-0 bg-[#1a1a1a] z-10">
+                  <h2 className="text-xl font-bold text-white">جزئیات سفارش #{selectedOrder.id}</h2>
+                  <button onClick={() => setSelectedOrder(null)} className="text-gray-400 hover:text-white"><FiX size={24} /></button>
+                </div>
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div><p className="text-sm text-gray-400">مشتری</p><p className="text-white font-bold">{selectedOrder.user_name}</p></div>
+                    <div><p className="text-sm text-gray-400">شماره تماس</p><p className="text-white font-bold" dir="ltr">{selectedOrder.user_phone}</p></div>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-400">آدرس ارسال</p>
+                    <p className="text-white">{selectedOrder.province}، {selectedOrder.city}</p>
+                    <p className="text-white text-sm">{selectedOrder.full_address}</p>
+                    <p className="text-white text-sm">کد پستی: {selectedOrder.postal_code}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-400 mb-2">اقلام سفارش</p>
+                    <p className="text-white text-sm">{selectedOrder.total_items} قلم کالا - مجموع: {parseFloat(selectedOrder.total_price).toLocaleString()} تومان</p>
+                  </div>
+                  <div className="border-t border-white/10 pt-4">
+                    <p className="text-sm text-gray-400 mb-2">تغییر وضعیت سفارش</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button onClick={() => handleUpdateOrderStatus(selectedOrder.id, 'processing')} className="bg-blue-500/20 text-blue-400 py-2 rounded-lg hover:bg-blue-500/30 font-bold">در حال پردازش (بسته‌بندی)</button>
+                      <button onClick={() => handleUpdateOrderStatus(selectedOrder.id, 'delivered')} className="bg-purple-500/20 text-purple-400 py-2 rounded-lg hover:bg-purple-500/30 font-bold">ارسال شده</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </main>
+      <Footer />
+    </div>
+  );
+};
+
+export default Admin;
+=========================================
+✅ COLLECTION COMPLETE!
+=========================================
