@@ -25,3 +25,4 @@ from app.models.payment import Payment
 from app.models.review import Review
 from app.models.favorite import Favorite
 from app.models.audit import AuditLog
+from app.models.bank_info import BankInfo

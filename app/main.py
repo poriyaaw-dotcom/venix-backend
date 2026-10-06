@@ -1,3 +1,5 @@
+from app.api.v1.payment import router as payment_router
+from app.models.bank_info import BankInfo
 # app/main.py
 import os
 from fastapi import FastAPI, Request
@@ -82,6 +84,7 @@ app.include_router(payments_router, prefix="/api/v1", tags=["Payments"])
 app.include_router(reviews_router, prefix="/api/v1", tags=["Reviews"])
 app.include_router(favorites_router, prefix="/api/v1", tags=["Favorites"])
 app.include_router(admin_router, prefix="/api/v1", tags=["Admin"])
+app.include_router(payment_router, prefix="/api/v1", tags=["Payment"])
 app.include_router(admin_products_router, prefix="/api/v1", tags=["Admin Products"])
 
 @app.get("/")

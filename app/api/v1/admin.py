@@ -138,7 +138,9 @@ def get_all_orders(
             "city": order.city,
             "province": order.province,
             "created_at": order.created_at,
-            "total_items": order.total_items
+            "total_items": order.total_items,
+            "bank_tracking_number": order.bank_tracking_number,
+            "paid_at": order.paid_at.isoformat() if order.paid_at else None
         }
         for order in orders
     ]

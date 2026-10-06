@@ -25,6 +25,8 @@ class Order(Base):
     reserved_until = Column(DateTime(timezone=True), nullable=True) # For inventory reservation
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    bank_tracking_number = Column(String(50), nullable=True)
+    paid_at = Column(DateTime(timezone=True), nullable=True)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     user = relationship("User", backref="orders")
