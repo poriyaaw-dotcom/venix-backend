@@ -20,6 +20,8 @@ class ProductVariantResponse(BaseModel):
     sku: Optional[str]
     stock_quantity: Optional[int] = None # Hidden from non-wholesale users
     final_price: Decimal
+    base_price: float = 0.0
+    discount_percent: int = 0
     attributes: List[ProductAttributeValueResponse] = []
 
     class Config:

@@ -349,7 +349,11 @@ def get_admin_product_details(
             {
                 "id": var.id,
                 "sku": var.sku or "",
-                "price": float(var.price_normal) if var.price_normal else 0,
+                "price_normal": float(var.price_normal) if var.price_normal else 0,
+                "price_visitor": float(var.price_visitor) if var.price_visitor else 0,
+                "price_shop_owner": float(var.price_shop_owner) if var.price_shop_owner else 0,
+                "price_wholesale": float(var.price_wholesale) if var.price_wholesale else 0,
+                "discount_percent": var.discount_percent or 0,
                 "stock_quantity": var.stock_quantity or 0,
                 "selectedValueIds": [mapping.attribute_value_id for mapping in var.attribute_mappings]
             }
@@ -404,11 +408,12 @@ def update_product(
                     variant = db.query(ProductVariant).filter(ProductVariant.id == var_id).first()
                     if variant:
                         variant.sku = var_data.get("sku") or variant.sku
-                        variant.purchase_cost = float(var_data.get("price", 0))
-                        variant.price_normal = float(var_data.get("price", 0))
-                        variant.price_visitor = float(var_data.get("price", 0))
-                        variant.price_shop_owner = float(var_data.get("price", 0))
-                        variant.price_wholesale = float(var_data.get("price", 0))
+                        variant.purchase_cost = float(var_data.get("purchase_cost", var_data.get("price", 0)))
+                        variant.price_normal = float(var_data.get("price_normal", var_data.get("price", 0)))
+                        variant.price_visitor = float(var_data.get("price_visitor", var_data.get("price", 0)))
+                        variant.price_shop_owner = float(var_data.get("price_shop_owner", var_data.get("price", 0)))
+                        variant.price_wholesale = float(var_data.get("price_wholesale", var_data.get("price", 0)))
+                        variant.discount_percent = int(var_data.get("discount_percent", 0))
                         variant.stock_quantity = int(var_data.get("stock_quantity", 0))
                         
                         # Update mappings safely
@@ -423,11 +428,12 @@ def update_product(
                     variant = ProductVariant(
                         product_id=product_id,
                         sku=var_data.get("sku") or f"VAR-{product_id}-{int(time.time())}",
-                        purchase_cost=float(var_data.get("price", 0)),
-                        price_normal=float(var_data.get("price", 0)),
-                        price_visitor=float(var_data.get("price", 0)),
-                        price_shop_owner=float(var_data.get("price", 0)),
-                        price_wholesale=float(var_data.get("price", 0)),
+                        purchase_cost=float(var_data.get("purchase_cost", var_data.get("price", 0))),
+                        price_normal=float(var_data.get("price_normal", var_data.get("price", 0))),
+                        price_visitor=float(var_data.get("price_visitor", var_data.get("price", 0))),
+                        price_shop_owner=float(var_data.get("price_shop_owner", var_data.get("price", 0))),
+                        price_wholesale=float(var_data.get("price_wholesale", var_data.get("price", 0))),
+                        discount_percent=int(var_data.get("discount_percent", 0)),
                         stock_quantity=int(var_data.get("stock_quantity", 0))
                     )
                     db.add(variant)

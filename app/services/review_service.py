@@ -55,7 +55,7 @@ def recalculate_product_rating(db: Session, product_id: int):
     ).all()
 
     if not approved_reviews:
-        product.average_rating = 5.00
+        product.average_rating = Decimal('0.00')
         product.review_count = 0
     else:
         total_rating = sum(r.rating for r in approved_reviews)

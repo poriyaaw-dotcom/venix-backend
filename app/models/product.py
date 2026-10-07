@@ -84,6 +84,7 @@ class ProductVariant(Base):
     price_visitor = Column(Numeric(15, 2), nullable=False)
     price_shop_owner = Column(Numeric(15, 2), nullable=False)
     price_wholesale = Column(Numeric(15, 2), nullable=False)
+    discount_percent = Column(Integer, default=0, nullable=False)
     
     stock_quantity = Column(Integer, default=0, nullable=False)
     

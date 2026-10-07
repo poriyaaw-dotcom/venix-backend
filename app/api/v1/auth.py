@@ -3,11 +3,13 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
+from datetime import datetime
 
 from app.db.session import get_db
 from app.core.dependencies import get_current_user 
 from app.models.user import User
-from app.models.partner_request import PartnerRequest # Ensure this matches your model name
+from app.models.partner_request import PartnerRequest
+from app.models.order import Order # Ensure this matches your model name
 from app.schemas.auth import PhoneRequest, OTPVerifyRequest, TokenResponse, UserResponse
 from app.schemas.partner_request import PartnerRequestResponse
 
@@ -30,6 +32,13 @@ def get_current_user_profile(current_user: User = Depends(get_current_user)):
     return current_user
 
 # ✅ Extended schema to accept names and business info from the frontend
+
+class MyOrderSummary(BaseModel):
+    id: int
+    status: str
+    total_price: float
+    created_at: datetime
+
 class PartnerRequestCreateExtended(BaseModel):
     business_name: str
     description: Optional[str] = ""
@@ -94,3 +103,20 @@ def update_user_profile(
         db.commit()
         db.refresh(current_user)
     return {"message": "پروفایل با موفقیت بروزرسانی شد.", "full_name": current_user.full_name}
+
+@router.get("/me/orders", response_model=list[MyOrderSummary])
+def get_my_orders(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    # Securely fetch ONLY the orders belonging to the logged-in user
+    orders = db.query(Order).filter(Order.user_id == current_user.id).order_by(Order.created_at.desc()).all()
+    return [
+        {
+            "id": o.id,
+            "status": o.status.value if hasattr(o.status, 'value') else str(o.status),
+            "total_price": float(o.total_price),
+            "created_at": o.created_at
+        }
+        for o in orders
+    ]

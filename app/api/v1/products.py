@@ -5,7 +5,7 @@ from decimal import Decimal
 from typing import List
 
 from app.db.session import get_db
-from app.models.product import Product, ProductStatus, ProductVariant, VariantAttributeMapping, ProductAttributeValue
+from app.models.product import Product, ProductStatus, ProductVariant, VariantAttributeMapping, ProductAttributeValue, Category
 from app.models.enums import CustomerGroup
 from app.core.dependencies import get_current_user
 from app.schemas.product import ProductResponse, ProductVariantResponse, ProductAttributeValueResponse
@@ -15,10 +15,8 @@ router = APIRouter(prefix="/products", tags=["Products"])
 
 @router.get("/categories")
 def get_public_categories(db: Session = Depends(get_db)):
-    from app.models.product import Category
     categories = db.query(Category).filter(Category.is_landing_category == 1).all()
     return [{"id": c.id, "name": c.name, "slug": c.slug} for c in categories]
-
 
 @router.get("/", response_model=List[ProductResponse])
 def get_products(
@@ -48,6 +46,7 @@ def get_products(
         variant_responses = []
         for variant in product.variants:
             final_price = calculate_final_price(variant, customer_group)
+            base_price_val = float(calculate_final_price(variant, CustomerGroup.NORMAL))
             
             attrs = []
             for mapping in variant.attribute_mappings:
@@ -61,7 +60,9 @@ def get_products(
                 id=variant.id,
                 sku=variant.sku,
                 stock_quantity=variant.stock_quantity if can_see_stock else None,
-                final_price=final_price,
+                final_price=float(final_price),
+                base_price=base_price_val,
+                discount_percent=int(variant.discount_percent or 0),
                 attributes=attrs
             ))
             
@@ -78,8 +79,6 @@ def get_products(
         
     return response_products
 
-
-# ✅ SPECIFIC ROUTE: Must come BEFORE the dynamic /{product_id} route
 @router.get("/search", response_model=List[ProductResponse])
 def search_products(
     q: str = Query(..., min_length=0, description="Search query (Persian or English)"),
@@ -87,14 +86,12 @@ def search_products(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    """Advanced search with Persian/English partial matching and sorting."""
     group_str = getattr(current_user, "customer_group", "visitor")
     try:
         customer_group = CustomerGroup(group_str)
     except ValueError:
         customer_group = CustomerGroup.VISITOR
 
-    # Case-insensitive partial match for both Persian and English titles
     search_pattern = f"%{q}%"
     query = db.query(Product).filter(
         Product.status == ProductStatus.ACTIVE,
@@ -102,13 +99,11 @@ def search_products(
         (Product.title.ilike(search_pattern) | Product.title_en.ilike(search_pattern))
     )
 
-    # Apply sorting
     if sort_by == "most_bought":
         query = query.order_by(Product.sold_count.desc())
     elif sort_by == "newest":
         query = query.order_by(Product.created_at.desc())
 
-    # Eager load relationships
     products = query.options(
         joinedload(Product.category),
         joinedload(Product.brand),
@@ -125,8 +120,8 @@ def search_products(
         variant_responses = []
         for variant in product.variants:
             final_price = calculate_final_price(variant, customer_group)
+            base_price_val = float(calculate_final_price(variant, CustomerGroup.NORMAL))
             
-            # FIXED: Using the Pydantic model properly to include the 'id'
             attrs = [
                 ProductAttributeValueResponse(
                     id=m.attribute_value.id,
@@ -140,7 +135,9 @@ def search_products(
                 id=variant.id,
                 sku=variant.sku,
                 stock_quantity=variant.stock_quantity if can_see_stock else None,
-                final_price=final_price,
+                final_price=float(final_price),
+                base_price=base_price_val,
+                discount_percent=int(variant.discount_percent or 0),
                 attributes=attrs
             ))
             
@@ -157,8 +154,6 @@ def search_products(
         
     return response_products
 
-
-# ✅ DYNAMIC ROUTE: Must come LAST
 @router.get("/{product_id}", response_model=ProductResponse)
 def get_product(
     product_id: int,
@@ -188,6 +183,7 @@ def get_product(
     
     for variant in product.variants:
         final_price = calculate_final_price(variant, customer_group)
+        base_price_val = float(calculate_final_price(variant, CustomerGroup.NORMAL))
         attrs = []
         for mapping in variant.attribute_mappings:
             attrs.append(ProductAttributeValueResponse(
@@ -200,7 +196,9 @@ def get_product(
             id=variant.id,
             sku=variant.sku,
             stock_quantity=variant.stock_quantity if can_see_stock else None,
-            final_price=final_price,
+            final_price=float(final_price),
+            base_price=base_price_val,
+            discount_percent=int(variant.discount_percent or 0),
             attributes=attrs
         ))
         
@@ -214,9 +212,3 @@ def get_product(
         brand_name=product.brand.name if product.brand else None,
         variants=variant_responses
     )
-
-@router.get("/categories")
-def get_public_categories(db: Session = Depends(get_db)):
-    from app.models.product import Category
-    categories = db.query(Category).filter(Category.is_landing_category == 1).all()
-    return [{"id": c.id, "name": c.name, "slug": c.slug} for c in categories]
