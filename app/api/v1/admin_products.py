@@ -33,6 +33,7 @@ class ProductCreate(BaseModel):
     title: str
     title_en: Optional[str] = None
     description: Optional[str] = None
+    image_url: Optional[str] = None
 
 # --- 1. Create Base Product (NEW) ---
 @router.post("/", response_model=dict)
@@ -46,7 +47,8 @@ def create_base_product(
         title=product_data.title,
         title_en=product_data.title_en,
         description=product_data.description,
-        status=ProductStatus.ACTIVE # Using your existing Enum
+        image_url=product_data.image_url, # ✅ Now it saves the uploaded image!
+        status=ProductStatus.ACTIVE
     )
     db.add(new_product)
     db.commit()

@@ -1,3 +1,4 @@
+from fastapi.staticfiles import StaticFiles
 from app.api.v1.payment import router as payment_router
 from app.models.bank_info import BankInfo
 # app/main.py
@@ -12,6 +13,8 @@ from app.core.config import get_settings
 from app.api.v1.health import router as health_router
 from app.api.v1.auth import router as auth_router
 from app.api.v1.products import router as products_router
+from app.api.v1.blog import router as blog_router
+from app.api.v1.upload import router as upload_router
 from app.api.v1.cart import router as cart_router
 from app.api.v1.checkout import router as checkout_router
 from app.api.v1.payments import router as payments_router
@@ -26,6 +29,7 @@ settings = get_settings()
 is_prod = os.getenv("ENVIRONMENT") == "production"
 docs_url = None if is_prod else "/docs"
 redoc_url = None if is_prod else "/redoc"
+
 
 app = FastAPI(
     title=settings.APP_NAME, 
@@ -86,7 +90,12 @@ app.include_router(favorites_router, prefix="/api/v1", tags=["Favorites"])
 app.include_router(admin_router, prefix="/api/v1", tags=["Admin"])
 app.include_router(payment_router, prefix="/api/v1", tags=["Payment"])
 app.include_router(admin_products_router, prefix="/api/v1", tags=["Admin Products"])
+app.include_router(blog_router, prefix="/api/v1", tags=["Blog"])
+app.include_router(upload_router, prefix="/api/v1", tags=["Upload"])
 
 @app.get("/")
 async def root():
     return {"message": f"Welcome to {settings.APP_NAME}"}
+
+# Serve uploaded images statically
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")

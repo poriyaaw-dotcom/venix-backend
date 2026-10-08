@@ -32,6 +32,7 @@ class ProductResponse(BaseModel):
     title: str
     title_en: Optional[str]
     description: Optional[str]
+    image_url: Optional[str] = None
     status: str
     category_name: Optional[str]
     brand_name: Optional[str]
