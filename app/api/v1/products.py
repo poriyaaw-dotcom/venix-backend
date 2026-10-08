@@ -24,11 +24,14 @@ def get_products(
     current_user = Depends(get_current_user),
     status_filter: str = Query(default="active", description="Filter by status: active, draft, hidden, out_of_stock")
 ):
-    group_str = getattr(current_user, "customer_group", "visitor")
-    try:
-        customer_group = CustomerGroup(group_str)
-    except ValueError:
-        customer_group = CustomerGroup.VISITOR
+    group_val = getattr(current_user, "customer_group", CustomerGroup.NORMAL)
+    if isinstance(group_val, CustomerGroup):
+        customer_group = group_val
+    else:
+        try:
+            customer_group = CustomerGroup(str(group_val))
+        except ValueError:
+            customer_group = CustomerGroup.NORMAL
 
     products = db.query(Product).options(
         joinedload(Product.category),
@@ -46,7 +49,14 @@ def get_products(
         variant_responses = []
         for variant in product.variants:
             final_price = calculate_final_price(variant, customer_group)
-            base_price_val = float(calculate_final_price(variant, CustomerGroup.NORMAL))
+            if customer_group == CustomerGroup.WHOLESALE:
+                base_price_val = float(variant.price_wholesale)
+            elif customer_group == CustomerGroup.SHOP_OWNER:
+                base_price_val = float(variant.price_shop_owner)
+            elif customer_group == CustomerGroup.VISITOR:
+                base_price_val = float(variant.price_visitor)
+            else:
+                base_price_val = float(variant.price_normal)
             
             attrs = []
             for mapping in variant.attribute_mappings:
@@ -86,11 +96,14 @@ def search_products(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    group_str = getattr(current_user, "customer_group", "visitor")
-    try:
-        customer_group = CustomerGroup(group_str)
-    except ValueError:
-        customer_group = CustomerGroup.VISITOR
+    group_val = getattr(current_user, "customer_group", CustomerGroup.NORMAL)
+    if isinstance(group_val, CustomerGroup):
+        customer_group = group_val
+    else:
+        try:
+            customer_group = CustomerGroup(str(group_val))
+        except ValueError:
+            customer_group = CustomerGroup.NORMAL
 
     search_pattern = f"%{q}%"
     query = db.query(Product).filter(
@@ -120,7 +133,14 @@ def search_products(
         variant_responses = []
         for variant in product.variants:
             final_price = calculate_final_price(variant, customer_group)
-            base_price_val = float(calculate_final_price(variant, CustomerGroup.NORMAL))
+            if customer_group == CustomerGroup.WHOLESALE:
+                base_price_val = float(variant.price_wholesale)
+            elif customer_group == CustomerGroup.SHOP_OWNER:
+                base_price_val = float(variant.price_shop_owner)
+            elif customer_group == CustomerGroup.VISITOR:
+                base_price_val = float(variant.price_visitor)
+            else:
+                base_price_val = float(variant.price_normal)
             
             attrs = [
                 ProductAttributeValueResponse(
@@ -160,11 +180,14 @@ def get_product(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    group_str = getattr(current_user, "customer_group", "visitor")
-    try:
-        customer_group = CustomerGroup(group_str)
-    except ValueError:
-        customer_group = CustomerGroup.VISITOR
+    group_val = getattr(current_user, "customer_group", CustomerGroup.NORMAL)
+    if isinstance(group_val, CustomerGroup):
+        customer_group = group_val
+    else:
+        try:
+            customer_group = CustomerGroup(str(group_val))
+        except ValueError:
+            customer_group = CustomerGroup.NORMAL
 
     product = db.query(Product).options(
         joinedload(Product.category),

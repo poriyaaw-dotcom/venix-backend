@@ -1,6 +1,6 @@
 # app/api/v1/admin.py
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
 from datetime import datetime
 
@@ -91,7 +91,7 @@ def get_admin_stats(
 ):
     total_users = db.query(User).count()
     total_products = db.query(Product).count()
-    pending_requests = db.query(PartnerRequest).filter(PartnerRequest.status == "pending").count()
+    pending_requests = db.query(PartnerRequest).options(joinedload(PartnerRequest.user)).filter(PartnerRequest.status == "pending").count()
     
     total_orders = db.query(Order).count()
     pending_orders = db.query(Order).filter(Order.status == "pending_payment").count()
@@ -517,7 +517,7 @@ def get_pending_partner_requests(db: Session = Depends(get_db), current_user: Us
 
 @router.post("/partner-requests/{request_id}/approve")
 def approve_partner_request(request_id: int, data: ApproveRequestSchema, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
-    req = db.query(PartnerRequest).filter(PartnerRequest.id == request_id).first()
+    req = db.query(PartnerRequest).options(joinedload(PartnerRequest.user)).filter(PartnerRequest.id == request_id).first()
     if not req: raise HTTPException(status_code=404, detail="Request not found")
     user = db.query(User).filter(User.id == req.user_id).first()
     if user:
@@ -532,7 +532,7 @@ def approve_partner_request(request_id: int, data: ApproveRequestSchema, db: Ses
 
 @router.post("/partner-requests/{request_id}/reject")
 def reject_partner_request(request_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
-    req = db.query(PartnerRequest).filter(PartnerRequest.id == request_id).first()
+    req = db.query(PartnerRequest).options(joinedload(PartnerRequest.user)).filter(PartnerRequest.id == request_id).first()
     if req:
         db.delete(req)
         db.commit()

@@ -115,9 +115,10 @@ def create_product_variant(
         sku=variant_data.sku,
         purchase_cost=variant_data.purchase_cost,
         price_normal=getattr(variant_data, 'price_normal', None) or variant_data.purchase_cost,
-        price_visitor=getattr(variant_data, 'price_visitor', None) or variant_data.purchase_cost,
-        price_shop_owner=getattr(variant_data, 'price_shop_owner', None) or variant_data.purchase_cost,
-        price_wholesale=getattr(variant_data, 'price_wholesale', None) or variant_data.purchase_cost,
+        price_visitor=getattr(variant_data, 'price_visitor', None) if getattr(variant_data, 'price_visitor', None) is not None else variant_data.purchase_cost,
+        price_shop_owner=getattr(variant_data, 'price_shop_owner', None) if getattr(variant_data, 'price_shop_owner', None) is not None else variant_data.purchase_cost,
+        price_wholesale=getattr(variant_data, 'price_wholesale', None) if getattr(variant_data, 'price_wholesale', None) is not None else variant_data.purchase_cost,
+        discount_percent=getattr(variant_data, 'discount_percent', 0) or 0,
         stock_quantity=variant_data.stock_quantity
     )
     db.add(variant)

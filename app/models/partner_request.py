@@ -1,5 +1,6 @@
 # app/models/partner_request.py
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Enum
+from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.db.session import Base
 import enum
@@ -14,6 +15,9 @@ class PartnerRequest(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    
+    # ✅ Relationship to fetch user details (phone, name)
+    user = relationship("User", foreign_keys=[user_id])
     
     business_name = Column(String(100), nullable=True)
     description = Column(String(500), nullable=True)

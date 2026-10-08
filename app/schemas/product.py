@@ -67,8 +67,13 @@ class AdminProductAttributeResponse(BaseModel):
         from_attributes = True
 
 class ProductVariantCreate(BaseModel):
+    discount_percent: Optional[int] = 0
     sku: Optional[str] = None
     purchase_cost: Decimal
+    price_normal: Optional[Decimal] = None
+    price_visitor: Optional[Decimal] = None
+    price_shop_owner: Optional[Decimal] = None
+    price_wholesale: Optional[Decimal] = None
     stock_quantity: int = 0
     attribute_value_ids: Optional[List[int]] = None
 
