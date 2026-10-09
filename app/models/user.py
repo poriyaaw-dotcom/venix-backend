@@ -1,7 +1,8 @@
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, Enum
 from sqlalchemy.sql import func
+from sqlalchemy.orm import relationship
 from app.db.session import Base
-from app.models.enums import CustomerGroup # ✅ Import from canonical source
+from app.models.enums import CustomerGroup
 
 class User(Base):
     __tablename__ = "users"
@@ -20,4 +21,8 @@ class User(Base):
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Relationship to addresses
+    addresses = relationship('Address', back_populates='user', cascade='all, delete-orphan')
+
 from app.models.otp import OTPRecord

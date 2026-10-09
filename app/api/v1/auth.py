@@ -120,3 +120,57 @@ def get_my_orders(
         }
         for o in orders
     ]
+
+
+# ==========================================
+# User Addresses Endpoints (Secure)
+# ==========================================
+from app.models.address import Address
+from pydantic import BaseModel
+
+class AddressCreate(BaseModel):
+    province: str
+    city: str
+    full_address: str
+    postal_code: str
+    phone: str
+
+class AddressResponse(BaseModel):
+    id: int
+    province: str
+    city: str
+    full_address: str
+    postal_code: str
+    phone: str
+
+    class Config:
+        from_attributes = True
+
+@router.get("/me/addresses", response_model=list[AddressResponse])
+def get_my_addresses(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    addresses = db.query(Address).filter(Address.user_id == current_user.id).all()
+    return addresses
+
+@router.post("/me/addresses", response_model=AddressResponse)
+def create_my_address(address_data: AddressCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    new_address = Address(
+        user_id=current_user.id,
+        province=address_data.province,
+        city=address_data.city,
+        full_address=address_data.full_address,
+        postal_code=address_data.postal_code,
+        phone=address_data.phone
+    )
+    db.add(new_address)
+    db.commit()
+    db.refresh(new_address)
+    return new_address
+
+@router.delete("/me/addresses/{address_id}")
+def delete_my_address(address_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    address = db.query(Address).filter(Address.id == address_id, Address.user_id == current_user.id).first()
+    if not address:
+        raise HTTPException(status_code=404, detail="آدرس یافت نشد")
+    db.delete(address)
+    db.commit()
+    return {"message": "آدرس با موفقیت حذف شد"}

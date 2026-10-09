@@ -26,3 +26,5 @@ from app.models.review import Review
 from app.models.favorite import Favorite
 from app.models.audit import AuditLog
 from app.models.bank_info import BankInfo
+
+from app.models.address import Address

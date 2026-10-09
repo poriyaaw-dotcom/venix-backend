@@ -6,6 +6,10 @@ from typing import List
 
 from app.db.session import get_db
 from app.models.product import Product, ProductStatus, ProductVariant, VariantAttributeMapping, ProductAttributeValue, Category
+try:
+    from app.models.product import Brand
+except ImportError:
+    from app.models.brand import Brand
 from app.models.enums import CustomerGroup
 from app.core.dependencies import get_current_user
 from app.schemas.product import ProductResponse, ProductVariantResponse, ProductAttributeValueResponse
@@ -175,6 +179,17 @@ def search_products(
         ))
         
     return response_products
+
+
+@router.get("/brands")
+def get_public_brands(db: Session = Depends(get_db)):
+    try:
+        from app.models.product import Brand
+    except ImportError:
+        from app.models.brand import Brand
+        
+    brands = db.query(Brand).all()
+    return [{"id": b.id, "name": b.name} for b in brands]
 
 @router.get("/{product_id}", response_model=ProductResponse)
 def get_product(
