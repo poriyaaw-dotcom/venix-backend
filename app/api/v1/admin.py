@@ -126,7 +126,7 @@ def get_all_orders(
     if status:
         query = query.filter(Order.status == status)
     
-    orders = query.order_by(Order.created_at.desc()).limit(limit).all()
+    orders = query.options(joinedload(Order.items)).order_by(Order.created_at.desc()).limit(limit).all()
     return [
         {
             "id": order.id,
@@ -137,10 +137,18 @@ def get_all_orders(
             "total_price": float(order.total_price),
             "city": order.city,
             "province": order.province,
-            "created_at": order.created_at,
+            "created_at": order.created_at.isoformat() if order.created_at else None,
             "total_items": order.total_items,
             "bank_tracking_number": order.bank_tracking_number,
-            "paid_at": order.paid_at.isoformat() if order.paid_at else None
+            "paid_at": order.paid_at.isoformat() if order.paid_at else None,
+            "items": [
+                {
+                    "product_title": item.product_title_snapshot,
+                    "quantity": item.quantity,
+                    "unit_price": float(item.unit_price)
+                }
+                for item in order.items
+            ]
         }
         for order in orders
     ]

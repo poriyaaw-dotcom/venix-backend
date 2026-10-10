@@ -36,6 +36,8 @@ class ProductResponse(BaseModel):
     status: str
     category_name: Optional[str]
     brand_name: Optional[str]
+    average_rating: float = 0.0
+    review_count: int = 0
     variants: List[ProductVariantResponse]
 
     class Config:

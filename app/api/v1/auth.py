@@ -104,19 +104,29 @@ def update_user_profile(
         db.refresh(current_user)
     return {"message": "پروفایل با موفقیت بروزرسانی شد.", "full_name": current_user.full_name}
 
-@router.get("/me/orders", response_model=list[MyOrderSummary])
+@router.get("/me/orders")
 def get_my_orders(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    # Securely fetch ONLY the orders belonging to the logged-in user
-    orders = db.query(Order).filter(Order.user_id == current_user.id).order_by(Order.created_at.desc()).all()
+    from sqlalchemy.orm import joinedload
+    # Securely fetch ONLY the orders belonging to the logged-in user, including items
+    orders = db.query(Order).options(joinedload(Order.items)).filter(Order.user_id == current_user.id).order_by(Order.created_at.desc()).all()
     return [
         {
             "id": o.id,
             "status": o.status.value if hasattr(o.status, 'value') else str(o.status),
             "total_price": float(o.total_price),
-            "created_at": o.created_at
+            "created_at": o.created_at.isoformat() if o.created_at else None,
+            "total_items": o.total_items,
+            "items": [
+                {
+                    "product_title": item.product_title_snapshot,
+                    "quantity": item.quantity,
+                    "unit_price": float(item.unit_price)
+                }
+                for item in o.items
+            ]
         }
         for o in orders
     ]

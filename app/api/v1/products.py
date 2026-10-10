@@ -89,6 +89,8 @@ def get_products(
             status=product.status.value,
             category_name=product.category.name if product.category else None,
             brand_name=product.brand.name if product.brand else None,
+            average_rating=float(product.average_rating or 0.0),
+            review_count=product.review_count or 0,
             variants=variant_responses
         ))
         
@@ -175,6 +177,8 @@ def search_products(
             status=product.status.value,
             category_name=product.category.name if product.category else None,
             brand_name=product.brand.name if product.brand else None,
+            average_rating=float(product.average_rating or 0.0),
+            review_count=product.review_count or 0,
             variants=variant_responses
         ))
         
@@ -251,5 +255,7 @@ def get_product(
         status=product.status.value,
         category_name=product.category.name if product.category else None,
         brand_name=product.brand.name if product.brand else None,
+        average_rating=float(product.average_rating or 0.0),
+        review_count=product.review_count or 0,
         variants=variant_responses
     )
