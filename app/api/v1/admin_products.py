@@ -55,6 +55,29 @@ def create_base_product(
     db.refresh(new_product)
     return {"id": new_product.id, "title": new_product.title}
 
+# --- 1.5 Update Base Product ---
+@router.put("/{product_id}", response_model=dict)
+def update_base_product(
+    product_id: int,
+    product_data: ProductCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    """Admin updates the base product details."""
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    
+    product.title = product_data.title
+    product.title_en = product_data.title_en
+    product.description = product_data.description
+    if product_data.image_url is not None:
+        product.image_url = product_data.image_url
+        
+    db.commit()
+    db.refresh(product)
+    return {"id": product.id, "title": product.title, "message": "Product updated successfully"}
+
 # --- 2. Product Attributes ---
 @router.post("/{product_id}/attributes", response_model=AdminProductAttributeResponse)
 def create_product_attribute(

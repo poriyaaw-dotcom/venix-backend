@@ -264,7 +264,7 @@ def delete_brand(brand_id: int, db: Session = Depends(get_db), current_user: Use
         raise HTTPException(status_code=404, detail="Brand not found")
     
     # Safely unlink products from this brand so the database doesn't crash
-    db.query(Product).order_by(Product.id.asc()).filter(Product.brand_id == brand_id).update({"brand_id": None})
+    db.query(Product).filter(Product.brand_id == brand_id).update({"brand_id": None})
     
     db.delete(brand)
     db.commit()
@@ -283,6 +283,7 @@ def create_product(
         title=data.title,
         title_en=data.title_en,
         description=data.description,
+    image_url=data.image_url,
         brand_id=data.brand_id,
         category_id=data.category_id,
         status=ProductStatus.ACTIVE,
@@ -309,6 +310,7 @@ def get_admin_products(
                 "id": p.id,
                 "title": p.title,
                 "title_en": p.title_en,
+                "image_url": p.image_url,
                 "status": p.status.value if hasattr(p.status, 'value') else str(p.status),
                 "is_active": p.is_active
             }
@@ -562,7 +564,7 @@ def create_category(data: CategoryCreateSchema, db: Session = Depends(get_db), c
 def delete_category(category_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
     cat = db.query(Category).filter(Category.id == category_id).first()
     if not cat: raise HTTPException(status_code=404, detail="Category not found")
-    db.query(Product).order_by(Product.id.asc()).filter(Product.category_id == category_id).update({"category_id": None})
+    db.query(Product).filter(Product.category_id == category_id).update({"category_id": None})
     db.delete(cat)
     db.commit()
     return {"message": "Category deleted successfully"}
