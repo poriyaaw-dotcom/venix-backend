@@ -15,6 +15,7 @@ class Category(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False)
     slug = Column(String(100), unique=True, index=True, nullable=False)
+    image_url = Column(String(500), nullable=True)
     parent_id = Column(Integer, ForeignKey("categories.id"), nullable=True)
     is_landing_category = Column(Integer, default=0, nullable=False)
     

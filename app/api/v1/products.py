@@ -20,7 +20,7 @@ router = APIRouter(prefix="/products", tags=["Products"])
 @router.get("/categories")
 def get_public_categories(db: Session = Depends(get_db)):
     categories = db.query(Category).filter(Category.is_landing_category == 1).all()
-    return [{"id": c.id, "name": c.name, "slug": c.slug} for c in categories]
+    return [{"id": c.id, "name": c.name, "slug": c.slug, "image_url": c.image_url} for c in categories]
 
 @router.get("/", response_model=List[ProductResponse])
 def get_products(
@@ -120,7 +120,7 @@ def search_products(
     if sort_by == "most_bought":
         query = query.order_by(Product.sold_count.desc())
     elif sort_by == "newest":
-        query = query.order_by(Product.created_at.desc())
+        query = query.order_by(Product.id.desc())
 
     products = query.options(
         joinedload(Product.category),

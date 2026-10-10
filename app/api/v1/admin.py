@@ -90,7 +90,7 @@ def get_admin_stats(
     current_user: User = Depends(require_admin)
 ):
     total_users = db.query(User).count()
-    total_products = db.query(Product).count()
+    total_products = db.query(Product).order_by(Product.id.asc()).count()
     pending_requests = db.query(PartnerRequest).options(joinedload(PartnerRequest.user)).filter(PartnerRequest.status == "pending").count()
     
     total_orders = db.query(Order).count()
@@ -98,7 +98,7 @@ def get_admin_stats(
     paid_orders = db.query(Order).filter(Order.status == "paid").count()
     processing_orders = db.query(Order).filter(Order.status == "processing").count()
     shipped_orders = db.query(Order).filter(Order.status == "delivered").count()
-    deactivated_products = db.query(Product).filter(Product.is_active == False).count()
+    deactivated_products = db.query(Product).order_by(Product.id.asc()).filter(Product.is_active == False).count()
     
     return {
         "total_users": total_users,
@@ -264,7 +264,7 @@ def delete_brand(brand_id: int, db: Session = Depends(get_db), current_user: Use
         raise HTTPException(status_code=404, detail="Brand not found")
     
     # Safely unlink products from this brand so the database doesn't crash
-    db.query(Product).filter(Product.brand_id == brand_id).update({"brand_id": None})
+    db.query(Product).order_by(Product.id.asc()).filter(Product.brand_id == brand_id).update({"brand_id": None})
     
     db.delete(brand)
     db.commit()
@@ -296,20 +296,29 @@ def create_product(
 
 @router.get("/products")
 def get_admin_products(
+    page: int = 1,
+    limit: int = 10,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
 ):
-    products = db.query(Product).all()
-    return [
-        {
-            "id": p.id,
-            "title": p.title,
-            "title_en": p.title_en,
-            "status": p.status.value if hasattr(p.status, 'value') else str(p.status),
-            "is_active": p.is_active
-        }
-        for p in products
-    ]
+    total = db.query(Product).count()
+    products = db.query(Product).order_by(Product.id.asc()).offset((page - 1) * limit).limit(limit).all()
+    return {
+        "items": [
+            {
+                "id": p.id,
+                "title": p.title,
+                "title_en": p.title_en,
+                "status": p.status.value if hasattr(p.status, 'value') else str(p.status),
+                "is_active": p.is_active
+            }
+            for p in products
+        ],
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "total_pages": (total + limit - 1) // limit
+    }
 
 
 @router.get("/products/{product_id}")
@@ -321,7 +330,7 @@ def get_admin_product_details(
     from sqlalchemy.orm import joinedload
     from app.models.product import ProductAttribute, ProductVariant, VariantAttributeMapping
     
-    product = db.query(Product).options(
+    product = db.query(Product).order_by(Product.id.asc()).options(
         joinedload(Product.attributes).joinedload(ProductAttribute.values),
         joinedload(Product.variants).joinedload(ProductVariant.attribute_mappings)
     ).filter(Product.id == product_id).first()
@@ -373,7 +382,7 @@ def update_product(
     from app.models.product import ProductAttribute, ProductAttributeValue, ProductVariant, VariantAttributeMapping
     import time
 
-    product = db.query(Product).filter(Product.id == product_id).first()
+    product = db.query(Product).order_by(Product.id.asc()).filter(Product.id == product_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
     
@@ -465,7 +474,7 @@ def delete_product(
 ):
     from app.models.product import Product, ProductAttribute, ProductAttributeValue, ProductVariant, VariantAttributeMapping
     
-    product = db.query(Product).filter(Product.id == product_id).first()
+    product = db.query(Product).order_by(Product.id.asc()).filter(Product.id == product_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
     
@@ -553,7 +562,7 @@ def create_category(data: CategoryCreateSchema, db: Session = Depends(get_db), c
 def delete_category(category_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
     cat = db.query(Category).filter(Category.id == category_id).first()
     if not cat: raise HTTPException(status_code=404, detail="Category not found")
-    db.query(Product).filter(Product.category_id == category_id).update({"category_id": None})
+    db.query(Product).order_by(Product.id.asc()).filter(Product.category_id == category_id).update({"category_id": None})
     db.delete(cat)
     db.commit()
     return {"message": "Category deleted successfully"}
