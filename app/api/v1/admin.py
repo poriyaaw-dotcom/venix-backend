@@ -48,15 +48,6 @@ class ProductUpdateSchema(BaseModel):
     is_active: Optional[bool] = None
     attributes: Optional[list] = None
     variants: Optional[list] = None
-    title: Optional[str] = None
-    title_en: Optional[str] = None
-    description: Optional[str] = None
-    image_url: Optional[str] = None
-    brand_id: Optional[int] = None
-    category_id: Optional[int] = None
-    is_active: Optional[bool] = None
-    attributes: Optional[list] = None
-    variants: Optional[list] = None
 
 class ProductCreateSchema(BaseModel):
     title: str
@@ -202,7 +193,6 @@ def update_order_status(
     old_status = order.status.value if hasattr(order.status, 'value') else str(order.status)
     new_status = status_data.status
     
-    # 1. Strict State Machine Validation
     valid_transitions = {
         "pending_payment": ["paid", "cancelled"],
         "paid": ["processing", "cancelled", "refunded"],
@@ -219,17 +209,14 @@ def update_order_status(
             detail=f"انتقال وضعیت نامعتبر است. نمی‌توان وضعیت را از '{old_status}' به '{new_status}' تغییر داد."
         )
     
-    # 2. Inventory Restoration Logic (Refund / Cancellation of paid orders)
     if new_status in ["cancelled", "refunded"] and old_status in ["paid", "processing", "delivered", "completed"]:
         order_items = db.query(OrderItem).filter(OrderItem.order_id == order_id).all()
         for item in order_items:
             if item.variant:
                 item.variant.stock_quantity += item.quantity
                 
-    # 3. Update Status
     order.status = new_status
     
-    # Clear reservation if cancelled or refunded
     if new_status in ["cancelled", "refunded"]:
         order.reserved_until = None
         
@@ -271,7 +258,6 @@ def delete_brand(brand_id: int, db: Session = Depends(get_db), current_user: Use
     if not brand:
         raise HTTPException(status_code=404, detail="Brand not found")
     
-    # Safely unlink products from this brand so the database doesn't crash
     db.query(Product).filter(Product.brand_id == brand_id).update({"brand_id": None})
     
     db.delete(brand)
@@ -291,7 +277,7 @@ def create_product(
         title=data.title,
         title_en=data.title_en,
         description=data.description,
-    image_url=data.image_url,
+        image_url=data.image_url,
         brand_id=data.brand_id,
         category_id=data.category_id,
         status=ProductStatus.ACTIVE,
@@ -329,7 +315,6 @@ def get_admin_products(
         "limit": limit,
         "total_pages": (total + limit - 1) // limit
     }
-
 
 @router.get("/products/{product_id}")
 def get_admin_product_details(
@@ -374,13 +359,12 @@ def get_admin_product_details(
                 "price_wholesale": float(var.price_wholesale) if var.price_wholesale else 0,
                 "discount_percent": var.discount_percent or 0,
                 "stock_quantity": var.stock_quantity or 0,
+                "attributes_text": var.attributes_text or "",
                 "selectedValueIds": [mapping.attribute_value_id for mapping in var.attribute_mappings]
             }
             for var in product.variants
         ]
     }
-
-
 
 @router.put("/products/{product_id}")
 def update_product(
@@ -396,7 +380,6 @@ def update_product(
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
     
-    # 1. Update basic info
     if update_data.title is not None: product.title = update_data.title
     if update_data.title_en is not None: product.title_en = update_data.title_en
     if update_data.description is not None: product.description = update_data.description
@@ -410,7 +393,6 @@ def update_product(
         
     db.commit()
     
-    # 2. Update attributes and variants SAFELY (Non-destructive for ordered items)
     if update_data.attributes is not None or update_data.variants is not None:
         from app.models.order import OrderItem
         
@@ -418,12 +400,11 @@ def update_product(
             incoming_variant_ids = [v.get("id") for v in update_data.variants if v.get("id")]
             
             for var_data in update_data.variants:
-                if not var_data.get("price") and not var_data.get("stock_quantity"): 
+                if not var_data.get("id") and not var_data.get("price_normal") and not var_data.get("stock_quantity"): 
                     continue
                 
                 var_id = var_data.get("id")
                 if var_id:
-                    # Update existing variant in-place
                     variant = db.query(ProductVariant).filter(ProductVariant.id == var_id).first()
                     if variant:
                         variant.sku = var_data.get("sku") or variant.sku
@@ -434,8 +415,8 @@ def update_product(
                         variant.price_wholesale = float(var_data.get("price_wholesale", var_data.get("price", 0)))
                         variant.discount_percent = int(var_data.get("discount_percent", 0))
                         variant.stock_quantity = int(var_data.get("stock_quantity", 0))
+                        variant.attributes_text = var_data.get("attributes_text", "")
                         
-                        # Update mappings safely
                         db.query(VariantAttributeMapping).filter(VariantAttributeMapping.variant_id == variant.id).delete(synchronize_session=False)
                         for val_id in var_data.get("selectedValueIds", []):
                             try:
@@ -443,7 +424,6 @@ def update_product(
                             except (ValueError, TypeError):
                                 pass
                 else:
-                    # Create new variant
                     variant = ProductVariant(
                         product_id=product_id,
                         sku=var_data.get("sku") or f"VAR-{product_id}-{int(time.time())}",
@@ -453,7 +433,8 @@ def update_product(
                         price_shop_owner=float(var_data.get("price_shop_owner", var_data.get("price", 0))),
                         price_wholesale=float(var_data.get("price_wholesale", var_data.get("price", 0))),
                         discount_percent=int(var_data.get("discount_percent", 0)),
-                        stock_quantity=int(var_data.get("stock_quantity", 0))
+                        stock_quantity=int(var_data.get("stock_quantity", 0)),
+                        attributes_text=var_data.get("attributes_text", "")
                     )
                     db.add(variant)
                     db.flush()
@@ -463,7 +444,6 @@ def update_product(
                         except (ValueError, TypeError):
                             pass
             
-            # Safe cleanup: Delete variants that are NOT in the incoming list AND have NO orders
             existing_variants = db.query(ProductVariant).filter(ProductVariant.product_id == product_id).all()
             for variant in existing_variants:
                 if variant.id not in incoming_variant_ids:
@@ -489,27 +469,22 @@ def delete_product(
         raise HTTPException(status_code=404, detail="Product not found")
     
     try:
-        # 1. Explicitly delete variant attribute mappings first
         db.query(VariantAttributeMapping).filter(
             VariantAttributeMapping.variant_id.in_(
                 db.query(ProductVariant.id).filter(ProductVariant.product_id == product_id)
             )
         ).delete(synchronize_session=False)
         
-        # 2. Delete variants
         db.query(ProductVariant).filter(ProductVariant.product_id == product_id).delete(synchronize_session=False)
         
-        # 3. Delete attribute values
         db.query(ProductAttributeValue).filter(
             ProductAttributeValue.attribute_id.in_(
                 db.query(ProductAttribute.id).filter(ProductAttribute.product_id == product_id)
             )
         ).delete(synchronize_session=False)
         
-        # 4. Delete attributes
         db.query(ProductAttribute).filter(ProductAttribute.product_id == product_id).delete(synchronize_session=False)
         
-        # 5. Finally, delete the product itself
         db.delete(product)
         db.commit()
         
@@ -521,7 +496,6 @@ def delete_product(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error deleting product: {str(e)}")
-
 
 # ==========================================
 # 5. AUDIT LOGS & PARTNER REQUESTS
@@ -557,6 +531,7 @@ def reject_partner_request(request_id: int, db: Session = Depends(get_db), curre
         db.commit()
         log_admin_action(db, current_user.id, "REJECT_PARTNER", "PARTNER_REQUEST", request_id, "Rejected partner request")
     return {"message": "Request rejected."}
+
 class CategoryCreateSchema(BaseModel):
     name: str
 
@@ -586,7 +561,6 @@ def cleanup_expired_reservations(
     from app.models.order import Order, OrderStatus
     
     now = datetime.now(timezone.utc)
-    # Find pending orders whose reservation has expired
     expired_orders = db.query(Order).filter(
         Order.status == OrderStatus.PENDING_PAYMENT,
         Order.reserved_until != None,
@@ -595,7 +569,6 @@ def cleanup_expired_reservations(
     
     released_count = 0
     for order in expired_orders:
-        # Release stock
         for item in order.items:
             item.variant.stock_quantity += item.quantity
         

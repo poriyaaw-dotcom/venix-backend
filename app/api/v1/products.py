@@ -184,7 +184,6 @@ def search_products(
         
     return response_products
 
-
 @router.get("/brands")
 def get_public_brands(db: Session = Depends(get_db)):
     try:
@@ -195,7 +194,7 @@ def get_public_brands(db: Session = Depends(get_db)):
     brands = db.query(Brand).all()
     return [{"id": b.id, "name": b.name} for b in brands]
 
-@router.get("/{product_id}", response_model=ProductResponse)
+@router.get("/{product_id}")
 def get_product(
     product_id: int,
     db: Session = Depends(get_db),
@@ -236,26 +235,27 @@ def get_product(
                 value=mapping.attribute_value.value
             ))
         
-        variant_responses.append(ProductVariantResponse(
-            id=variant.id,
-            sku=variant.sku,
-            stock_quantity=variant.stock_quantity if can_see_stock else None,
-            final_price=float(final_price),
-            base_price=base_price_val,
-            discount_percent=int(variant.discount_percent or 0),
-            attributes=attrs
-        ))
+        variant_responses.append({
+            "id": variant.id,
+            "sku": variant.sku,
+            "stock_quantity": variant.stock_quantity if can_see_stock else None,
+            "final_price": float(final_price),
+            "base_price": base_price_val,
+            "discount_percent": int(variant.discount_percent or 0),
+            "attributes": attrs,
+            "attributes_text": getattr(variant, 'attributes_text', '')
+        })
         
-    return ProductResponse(
-        id=product.id,
-        title=product.title,
-        title_en=product.title_en,
-        description=product.description,
-        image_url=product.image_url,
-        status=product.status.value,
-        category_name=product.category.name if product.category else None,
-        brand_name=product.brand.name if product.brand else None,
-        average_rating=float(product.average_rating or 0.0),
-        review_count=product.review_count or 0,
-        variants=variant_responses
-    )
+    return {
+        "id": product.id,
+        "title": product.title,
+        "title_en": product.title_en,
+        "description": product.description,
+        "image_url": product.image_url,
+        "status": product.status.value,
+        "category_name": product.category.name if product.category else None,
+        "brand_name": product.brand.name if product.brand else None,
+        "average_rating": float(product.average_rating or 0.0),
+        "review_count": product.review_count or 0,
+        "variants": variant_responses
+    }
