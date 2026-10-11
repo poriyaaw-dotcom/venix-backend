@@ -43,10 +43,11 @@ class Product(Base):
     status = Column(Enum(ProductStatus), default=ProductStatus.ACTIVE, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
     
-    # ✅ NEW: Added missing columns for sorting and reviews
+    # ✅ NEW: Added missing columns for sorting, reviews, and specifications
     sold_count = Column(Integer, default=0, nullable=False)
     average_rating = Column(Numeric(3, 2), default=0.00, nullable=False)
     review_count = Column(Integer, default=0, nullable=False)
+    specifications = Column(Text, nullable=True)  # ✅ THIS IS THE MISSING PIECE!
     
     category_id = Column(Integer, ForeignKey("categories.id"), nullable=True)
     brand_id = Column(Integer, ForeignKey("brands.id"), nullable=True)
