@@ -9,10 +9,9 @@ from app.db.session import get_db
 from app.core.dependencies import get_current_user 
 from app.models.user import User
 from app.models.partner_request import PartnerRequest
-from app.models.order import Order # Ensure this matches your model name
+from app.models.order import Order
 from app.schemas.auth import PhoneRequest, OTPVerifyRequest, TokenResponse, UserResponse
 from app.schemas.partner_request import PartnerRequestResponse
-
 from app.services.auth_service import request_otp, verify_otp as verify_otp_service
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -31,7 +30,9 @@ def get_current_user_profile(current_user: User = Depends(get_current_user)):
         raise HTTPException(status_code=401, detail="باید وارد حساب کاربری شوید")
     return current_user
 
-# ✅ Extended schema to accept names and business info from the frontend
+# ✅ ADDED STRICT SCHEMA FOR PROFILE UPDATE
+class UserProfileUpdate(BaseModel):
+    full_name: str
 
 class MyOrderSummary(BaseModel):
     id: int
@@ -54,14 +55,11 @@ def submit_partner_request(
     if not current_user.id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="باید وارد حساب کاربری شوید.")
     
-    # 1. Update user's name immediately so it's saved in their profile
     if request_data.first_name or request_data.last_name:
         current_user.full_name = f"{request_data.first_name} {request_data.last_name}".strip()
         db.commit()
         db.refresh(current_user)
 
-    # 2. Prevent duplicate pending requests
-    # Note: Adjust "pending" to match your Enum value if it's different (e.g., RequestStatus.PENDING)
     existing = db.query(PartnerRequest).filter(
         PartnerRequest.user_id == current_user.id, 
         PartnerRequest.status == "pending"
@@ -69,7 +67,6 @@ def submit_partner_request(
     if existing:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="شما قبلاً درخواست همکاری ثبت کرده‌اید.")
 
-    # 3. Create new request
     new_request = PartnerRequest(
         user_id=current_user.id,
         business_name=request_data.business_name,
@@ -80,7 +77,6 @@ def submit_partner_request(
     db.commit()
     db.refresh(new_request)
     
-    # ✅ FIX: Properly format status and include created_at to satisfy the Pydantic schema
     status_value = new_request.status.value if hasattr(new_request.status, 'value') else str(new_request.status)
     
     return {
@@ -89,19 +85,19 @@ def submit_partner_request(
         "business_name": new_request.business_name,
         "description": new_request.description,
         "status": status_value,
-        "created_at": new_request.created_at # ✅ THIS WAS MISSING
+        "created_at": new_request.created_at
     }
 
+# ✅ UPDATED TO USE STRICT SCHEMA
 @router.put("/me")
 def update_user_profile(
-    user_data: dict,
+    user_data: UserProfileUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    if "full_name" in user_data and user_data["full_name"] is not None:
-        current_user.full_name = user_data["full_name"]
-        db.commit()
-        db.refresh(current_user)
+    current_user.full_name = user_data.full_name.strip()
+    db.commit()
+    db.refresh(current_user)
     return {"message": "پروفایل با موفقیت بروزرسانی شد.", "full_name": current_user.full_name}
 
 @router.get("/me/orders")
@@ -110,7 +106,6 @@ def get_my_orders(
     current_user: User = Depends(get_current_user)
 ):
     from sqlalchemy.orm import joinedload
-    # Securely fetch ONLY the orders belonging to the logged-in user, including items
     orders = db.query(Order).options(joinedload(Order.items)).filter(Order.user_id == current_user.id).order_by(Order.created_at.desc()).all()
     return [
         {
@@ -131,12 +126,10 @@ def get_my_orders(
         for o in orders
     ]
 
-
 # ==========================================
 # User Addresses Endpoints (Secure)
 # ==========================================
 from app.models.address import Address
-from pydantic import BaseModel
 
 class AddressCreate(BaseModel):
     province: str
