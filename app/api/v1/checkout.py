@@ -54,9 +54,15 @@ def create_order(
         variant = db.query(ProductVariant).filter(ProductVariant.id == item.variant_id).first()
         if not variant:
             raise HTTPException(status_code=404, detail=f"Variant {item.variant_id} not found")
-        
+
+        # STRICT STOCK CHECK: Prevent ordering more than available
         if variant.stock_quantity < item.quantity:
-            raise HTTPException(status_code=400, detail=f"موجودی کافی نیست. موجودی فعلی: {variant.stock_quantity}")
+            raise HTTPException(
+                status_code=400,
+                detail=f"موجودی {variant.attributes_text or 'این محصول'} کافی نیست. موجودی فعلی: {variant.stock_quantity}"
+            )
+        
+    #             raise HTTPException(status_code=400, detail=f"موجودی کافی نیست. موجودی فعلی: {variant.stock_quantity}")
         
         # ✅ FIXED: Check product.is_active, not variant.is_active
         if not variant.product.is_active or variant.product.status == ProductStatus.OUT_OF_STOCK:
@@ -109,10 +115,9 @@ def create_order(
         # Deduct stock
         data["variant"].stock_quantity -= data["quantity"]
         
-        if data["variant"].stock_quantity <= 0:
-            # Note: ProductVariant doesn't have is_active, we manage this at the Product level
-            all_variants_out = all(v.stock_quantity <= 0 for v in data["product"].variants)
-            if all_variants_out:
+    # Note: ProductVariant doesn't have is_active, we manage this at the Product level
+    all_variants_out = all(v.stock_quantity <= 0 for v in data["product"].variants)
+    if all_variants_out:
                 data["product"].status = ProductStatus.OUT_OF_STOCK
                 data["product"].is_active = False
                 # Note: log_admin_action expects an admin user. Passing current_user.id is safe 

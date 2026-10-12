@@ -261,14 +261,17 @@ def update_product(product_id: int, update_data: ProductUpdateSchema, db: Sessio
                 variant = db.query(ProductVariant).filter(ProductVariant.id == var_id).first()
                 if variant:
                     variant.sku = var_data.get("sku") or variant.sku
-                    # ✅ FIXED: Ensured purchase_cost is always set to prevent DB null error
                     variant.purchase_cost = float(var_data.get("price_normal", variant.purchase_cost or 0))
                     variant.price_normal = float(var_data.get("price_normal", 0))
                     variant.price_visitor = float(var_data.get("price_visitor", 0))
                     variant.price_shop_owner = float(var_data.get("price_shop_owner", 0))
                     variant.price_wholesale = float(var_data.get("price_wholesale", 0))
                     variant.discount_percent = int(var_data.get("discount_percent", 0))
-                    variant.stock_quantity = int(var_data.get("stock_quantity", 0))
+                    
+                    # ✅ SAFE STOCK QUANTITY PARSING (Handles 0 correctly)
+                    raw_stock = var_data.get("stock_quantity")
+                    variant.stock_quantity = int(raw_stock) if raw_stock not in (None, "", "null") else 0
+                    
                     variant.attributes_text = var_data.get("attributes_text", "")
                     
                     db.query(VariantAttributeMapping).filter(VariantAttributeMapping.variant_id == variant.id).delete(synchronize_session=False)
@@ -277,16 +280,19 @@ def update_product(product_id: int, update_data: ProductUpdateSchema, db: Sessio
                         except (ValueError, TypeError): pass
                     processed_variant_ids.append(variant.id)
             else:
+                raw_stock_new = var_data.get("stock_quantity")
+                safe_stock = int(raw_stock_new) if raw_stock_new not in (None, "", "null") else 0
+                
                 new_variant = ProductVariant(
                     product_id=product_id,
                     sku=var_data.get("sku") or f"VAR-{product_id}-{int(time.time())}",
-                    purchase_cost=float(var_data.get("price_normal", 0)), # ✅ FIXED: Added purchase_cost
+                    purchase_cost=float(var_data.get("price_normal", 0)),
                     price_normal=float(var_data.get("price_normal", 0)),
                     price_visitor=float(var_data.get("price_visitor", 0)),
                     price_shop_owner=float(var_data.get("price_shop_owner", 0)),
                     price_wholesale=float(var_data.get("price_wholesale", 0)),
                     discount_percent=int(var_data.get("discount_percent", 0)),
-                    stock_quantity=int(var_data.get("stock_quantity", 0)),
+                    stock_quantity=safe_stock,
                     attributes_text=var_data.get("attributes_text", "")
                 )
                 db.add(new_variant)

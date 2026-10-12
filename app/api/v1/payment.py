@@ -90,17 +90,27 @@ def update_bank_info(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
 ):
-    db.query(BankInfo).update({"is_active": False})
-    
-    new_info = BankInfo(
-        bank_name=data.bank_name,
-        account_holder_name=data.account_holder_name,
-        card_number=data.card_number,
-        sheba_number=data.sheba_number,
-        is_active=True
-    )
-    db.add(new_info)
-    db.commit()
-    db.refresh(new_info)
+    existing_info = db.query(BankInfo).first()
+    if existing_info:
+        # Update existing record to avoid UniqueViolation
+        existing_info.bank_name = data.bank_name
+        existing_info.account_holder_name = data.account_holder_name
+        existing_info.card_number = data.card_number
+        existing_info.sheba_number = data.sheba_number
+        existing_info.is_active = True
+        db.commit()
+        db.refresh(existing_info)
+    else:
+        # Insert new record only if none exists
+        new_info = BankInfo(
+            bank_name=data.bank_name,
+            account_holder_name=data.account_holder_name,
+            card_number=data.card_number,
+            sheba_number=data.sheba_number,
+            is_active=True
+        )
+        db.add(new_info)
+        db.commit()
+        db.refresh(new_info)
     
     return {"message": "اطلاعات بانکی با موفقیت بروزرسانی شد"}

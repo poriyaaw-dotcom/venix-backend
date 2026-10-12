@@ -32,15 +32,38 @@ def get_products(db: Session = Depends(get_db), current_user = Depends(get_curre
     ).filter(Product.status == ProductStatus(status_filter), Product.is_active == True).all()
     
     response_products = []
-    can_see_stock = (customer_group == CustomerGroup.WHOLESALE)
     for product in products:
         variant_responses = []
         for variant in product.variants:
             final_price = calculate_final_price(variant, customer_group)
             base_price_val = float(variant.price_wholesale if customer_group == CustomerGroup.WHOLESALE else variant.price_shop_owner if customer_group == CustomerGroup.SHOP_OWNER else variant.price_visitor if customer_group == CustomerGroup.VISITOR else variant.price_normal)
             attrs = [ProductAttributeValueResponse(id=mapping.attribute_value.id, name=mapping.attribute_value.attribute.name, value=mapping.attribute_value.value) for mapping in variant.attribute_mappings]
-            variant_responses.append(ProductVariantResponse(id=variant.id, sku=variant.sku, stock_quantity=variant.stock_quantity if can_see_stock else None, final_price=float(final_price), base_price=base_price_val, discount_percent=int(variant.discount_percent or 0), attributes=attrs))
-        response_products.append(ProductResponse(id=product.id, title=product.title, title_en=product.title_en, description=product.description, image_url=product.image_url, status=product.status.value, category_name=product.category.name if product.category else None, brand_name=product.brand.name if product.brand else None, average_rating=float(product.average_rating or 0.0), review_count=product.review_count or 0, variants=variant_responses))
+            
+            # ✅ ALWAYS send the real stock number, no hiding
+            variant_responses.append(ProductVariantResponse(
+                id=variant.id, 
+                sku=variant.sku, 
+                stock_quantity=variant.stock_quantity, 
+                in_stock=(variant.stock_quantity or 0) > 0, 
+                final_price=float(final_price), 
+                base_price=base_price_val, 
+                discount_percent=int(variant.discount_percent or 0), 
+                attributes=attrs
+            ))
+            
+        response_products.append(ProductResponse(
+            id=product.id, 
+            title=product.title, 
+            title_en=product.title_en, 
+            description=product.description, 
+            image_url=product.image_url, 
+            status=product.status.value, 
+            category_name=product.category.name if product.category else None, 
+            brand_name=product.brand.name if product.brand else None, 
+            average_rating=float(product.average_rating or 0.0), 
+            review_count=product.review_count or 0, 
+            variants=variant_responses
+        ))
     return response_products
 
 @router.get("/search", response_model=List[ProductResponse])
@@ -53,15 +76,38 @@ def search_products(q: str = Query(..., min_length=0, description="Search query 
     
     products = query.options(joinedload(Product.category), joinedload(Product.brand), joinedload(Product.variants).joinedload(ProductVariant.attribute_mappings).joinedload(VariantAttributeMapping.attribute_value).joinedload(ProductAttributeValue.attribute)).all()
     response_products = []
-    can_see_stock = (customer_group == CustomerGroup.WHOLESALE)
     for product in products:
         variant_responses = []
         for variant in product.variants:
             final_price = calculate_final_price(variant, customer_group)
             base_price_val = float(variant.price_wholesale if customer_group == CustomerGroup.WHOLESALE else variant.price_shop_owner if customer_group == CustomerGroup.SHOP_OWNER else variant.price_visitor if customer_group == CustomerGroup.VISITOR else variant.price_normal)
             attrs = [ProductAttributeValueResponse(id=m.attribute_value.id, name=m.attribute_value.attribute.name, value=m.attribute_value.value) for m in variant.attribute_mappings]
-            variant_responses.append(ProductVariantResponse(id=variant.id, sku=variant.sku, stock_quantity=variant.stock_quantity if can_see_stock else None, final_price=float(final_price), base_price=base_price_val, discount_percent=int(variant.discount_percent or 0), attributes=attrs))
-        response_products.append(ProductResponse(id=product.id, title=product.title, title_en=product.title_en, description=product.description, image_url=product.image_url, status=product.status.value, category_name=product.category.name if product.category else None, brand_name=product.brand.name if product.brand else None, average_rating=float(product.average_rating or 0.0), review_count=product.review_count or 0, variants=variant_responses))
+            
+            # ✅ ALWAYS send the real stock number, no hiding
+            variant_responses.append(ProductVariantResponse(
+                id=variant.id, 
+                sku=variant.sku, 
+                stock_quantity=variant.stock_quantity, 
+                in_stock=(variant.stock_quantity or 0) > 0, 
+                final_price=float(final_price), 
+                base_price=base_price_val, 
+                discount_percent=int(variant.discount_percent or 0), 
+                attributes=attrs
+            ))
+            
+        response_products.append(ProductResponse(
+            id=product.id, 
+            title=product.title, 
+            title_en=product.title_en, 
+            description=product.description, 
+            image_url=product.image_url, 
+            status=product.status.value, 
+            category_name=product.category.name if product.category else None, 
+            brand_name=product.brand.name if product.brand else None, 
+            average_rating=float(product.average_rating or 0.0), 
+            review_count=product.review_count or 0, 
+            variants=variant_responses
+        ))
     return response_products
 
 @router.get("/brands")
@@ -80,23 +126,36 @@ def get_product(product_id: int, db: Session = Depends(get_db), current_user = D
     
     if not product: raise HTTPException(status_code=404, detail="Product not found")
     
-    can_see_stock = (customer_group == CustomerGroup.WHOLESALE)
     variant_responses = []
     for variant in product.variants:
         final_price = calculate_final_price(variant, customer_group)
         base_price_val = float(calculate_final_price(variant, CustomerGroup.NORMAL))
         attrs = [ProductAttributeValueResponse(id=mapping.attribute_value.id, name=mapping.attribute_value.attribute.name, value=mapping.attribute_value.value) for mapping in variant.attribute_mappings]
+        
+        # ✅ ALWAYS send the real stock number, no hiding. Fixed duplicate keys.
         variant_responses.append({
-            "id": variant.id, "sku": variant.sku, "stock_quantity": variant.stock_quantity if can_see_stock else None,
-            "final_price": float(final_price), "base_price": base_price_val, "discount_percent": int(variant.discount_percent or 0),
-            "attributes": attrs, "attributes_text": getattr(variant, 'attributes_text', '')
+            "id": variant.id, 
+            "sku": variant.sku,             
+            "stock_quantity": variant.stock_quantity, 
+            "in_stock": (variant.stock_quantity or 0) > 0,
+            "final_price": float(final_price), 
+            "base_price": base_price_val, 
+            "discount_percent": int(variant.discount_percent or 0),
+            "attributes": attrs, 
+            "attributes_text": getattr(variant, 'attributes_text', '')
         })
         
     return {
-        "id": product.id, "title": product.title, "title_en": product.title_en, "description": product.description,
-        "image_url": product.image_url, "status": product.status.value,
-        "category_name": product.category.name if product.category else None, "brand_name": product.brand.name if product.brand else None,
-        "average_rating": float(product.average_rating or 0.0), "review_count": product.review_count or 0,
+        "id": product.id, 
+        "title": product.title, 
+        "title_en": product.title_en, 
+        "description": product.description,
+        "image_url": product.image_url, 
+        "status": product.status.value,
+        "category_name": product.category.name if product.category else None, 
+        "brand_name": product.brand.name if product.brand else None,
+        "average_rating": float(product.average_rating or 0.0), 
+        "review_count": product.review_count or 0,
         "specifications": json.loads(getattr(product, "specifications", None)) if getattr(product, "specifications", None) else [],
         "variants": variant_responses
     }
