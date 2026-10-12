@@ -13,17 +13,17 @@ security = HTTPBearer(auto_error=False)
 settings = get_settings()
 
 class MockVisitorUser:
-    """Mock user for when no token is provided."""
+    """Mock user for public endpoints when no token is provided."""
     id = None
     phone_number = "visitor"
-    customer_group = "visitor"
+    customer_group = "NORMAL"  # ✅ Changed from "visitor" to match your Enum
     is_admin = False
 
 async def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
     db: Session = Depends(get_db)
 ):
-    # 1. If no token, return visitor
+    # 1. If no token, return visitor (Safe for public endpoints like /products)
     if credentials is None:
         return MockVisitorUser()
     
@@ -40,15 +40,12 @@ async def get_current_user(
 
     # 3. Smart Lookup: Try ID first, then Phone Number
     user = None
-    
-    # Try finding by ID (in case 'sub' is the user ID like "1")
     try:
         user_id = int(sub)
         user = db.query(User).filter(User.id == user_id).first()
     except (ValueError, TypeError):
         pass
         
-    # If not found by ID, try finding by phone number
     if not user:
         user = db.query(User).filter(User.phone_number == sub).first()
 
@@ -59,6 +56,7 @@ async def get_current_user(
 
 def require_admin(current_user: User = Depends(get_current_user)):
     """Dependency that ensures the current user is an admin."""
+    # ✅ This safely blocks MockVisitorUser and regular users
     if not getattr(current_user, 'is_admin', False):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, 
