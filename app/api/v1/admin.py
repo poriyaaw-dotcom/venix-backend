@@ -110,6 +110,7 @@ def get_all_orders(status: Optional[str] = None, limit: int = Query(default=50, 
         "id": order.id, "user_id": order.user_id, "user_phone": order.user.phone_number if order.user else "Unknown",
         "user_name": order.user.full_name if order.user else "Unknown", "status": order.status.value if hasattr(order.status, 'value') else str(order.status),
         "total_price": float(order.total_price), "city": order.city, "province": order.province,
+        "full_address": order.full_address, "postal_code": order.postal_code,  # ✅ ADDED THESE TWO LINES
         "created_at": order.created_at.isoformat() if order.created_at else None, "total_items": order.total_items,
         "bank_tracking_number": order.bank_tracking_number, "paid_at": order.paid_at.isoformat() if order.paid_at else None,
         "items": [{"product_title": item.product_title_snapshot, "quantity": item.quantity, "unit_price": float(item.unit_price)} for item in order.items]
