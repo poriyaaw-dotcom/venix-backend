@@ -1,7 +1,7 @@
 # app/models/audit_log.py
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
 from sqlalchemy.sql import func
-from app.db.base_class import Base  # Adjust this import to match your project's Base class
+from app.db.session import Base
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"

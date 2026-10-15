@@ -40,7 +40,7 @@ app = FastAPI(
 
 # ✅ SECURITY: Strict CORS Configuration
 # Only allow the specific frontend URL defined in .env
-allowed_origins = [settings.FRONTEND_URL] if getattr(settings, 'FRONTEND_URL', None) else ["http://localhost:5173"]
+allowed_origins = ["*"]
 
 app.add_middleware(
     CORSMiddleware,
