@@ -8,3 +8,5 @@ __pycache__/
 *.db
 .DS_Store
 .env
+backend.log
+backend.log
