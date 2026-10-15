@@ -12,7 +12,7 @@ class PhoneRequest(BaseModel):
         if not v:
             return v
         v = str(v)
-        farsi = '۰۲۳۴۵۶۸۹'
+        farsi = '۰۱۲۳۴۵۶۷۸۹'
         arabic = '٠١٢٣٤٥٦٧٨٩'
         english = '0123456789'
         v = v.translate(str.maketrans(farsi, english))
@@ -30,7 +30,7 @@ class OTPVerifyRequest(BaseModel):
             return v
         v = str(v)
         farsi = '۰۱۲۳۴۵۶۷۸۹'
-        arabic = '٠١٢٤٥٦٧٨٩'
+        arabic = '٠١٢٣٤٥٦٧٨٩'
         english = '0123456789'
         v = v.translate(str.maketrans(farsi, english))
         v = v.translate(str.maketrans(arabic, english))
