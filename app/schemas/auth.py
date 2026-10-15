@@ -6,13 +6,14 @@ from datetime import datetime
 class PhoneRequest(BaseModel):
     phone_number: str = Field(..., min_length=10, max_length=15, description="شماره موبایل کاربر")
 
-    @field_validator('phone_number')
+    @field_validator('phone_number', mode='before')
     @classmethod
-    def convert_farsi_arabic_to_english(cls, v: str) -> str:
+    def convert_farsi_arabic_to_english(cls, v) -> str:
         if not v:
             return v
-        farsi = '۰۱۲۳۴۵۶۷۸۹'
-        arabic = '٠١٢٤٥٦٧٨٩'
+        v = str(v)
+        farsi = '۰۲۳۴۵۶۸۹'
+        arabic = '٠١٢٣٤٥٦٧٨٩'
         english = '0123456789'
         v = v.translate(str.maketrans(farsi, english))
         v = v.translate(str.maketrans(arabic, english))
@@ -22,13 +23,14 @@ class OTPVerifyRequest(BaseModel):
     phone_number: str = Field(..., min_length=10, max_length=15)
     otp_code: str = Field(..., min_length=5, max_length=5, description="کد ۵ رقمی ارسال شده")
 
-    @field_validator('phone_number')
+    @field_validator('phone_number', mode='before')
     @classmethod
-    def convert_farsi_arabic_to_english(cls, v: str) -> str:
+    def convert_farsi_arabic_to_english(cls, v) -> str:
         if not v:
             return v
-        farsi = '۰۲۳۴۵۶۸۹'
-        arabic = '٠١٢٣٤٥٦٧٨٩'
+        v = str(v)
+        farsi = '۰۱۲۳۴۵۶۷۸۹'
+        arabic = '٠١٢٤٥٦٧٨٩'
         english = '0123456789'
         v = v.translate(str.maketrans(farsi, english))
         v = v.translate(str.maketrans(arabic, english))
