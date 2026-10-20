@@ -25,6 +25,7 @@ class OrderResponse(BaseModel):
     status: str
     total_price: Decimal
     total_items: int
+    payment_method: Optional[str] = "card_to_card" # NEW LINE
     items: List[OrderItemResponse]
 
     class Config:

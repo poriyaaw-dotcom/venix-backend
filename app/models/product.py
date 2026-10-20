@@ -20,12 +20,16 @@ class Category(Base):
     is_landing_category = Column(Integer, default=0, nullable=False)
     
     parent = relationship("Category", remote_side=[id], backref="children")
+    brands = relationship("Brand", back_populates="category", cascade="all, delete-orphan") # ✅ NEW
 
 class Brand(Base):
     __tablename__ = "brands"
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False)
     slug = Column(String(100), unique=True, index=True, nullable=False)
+    category_id = Column(Integer, ForeignKey("categories.id"), nullable=True) # ✅ NEW: Link to Category
+    
+    category = relationship("Category", back_populates="brands") # ✅ NEW
 
 class Tag(Base):
     __tablename__ = "tags"
@@ -38,16 +42,16 @@ class Product(Base):
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String(255), nullable=False)
     title_en = Column(String(255), nullable=True)
+    slug = Column(String(255), unique=True, index=True, nullable=True)
     description = Column(Text, nullable=True)
     image_url = Column(String(500), nullable=True)
     status = Column(Enum(ProductStatus), default=ProductStatus.ACTIVE, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
     
-    # ✅ NEW: Added missing columns for sorting, reviews, and specifications
     sold_count = Column(Integer, default=0, nullable=False)
     average_rating = Column(Numeric(3, 2), default=0.00, nullable=False)
     review_count = Column(Integer, default=0, nullable=False)
-    specifications = Column(Text, nullable=True)  # ✅ THIS IS THE MISSING PIECE!
+    specifications = Column(Text, nullable=True)
     
     category_id = Column(Integer, ForeignKey("categories.id"), nullable=True)
     brand_id = Column(Integer, ForeignKey("brands.id"), nullable=True)

@@ -13,7 +13,7 @@ class Order(Base):
     # Status
     status = Column(Enum(OrderStatus), default=OrderStatus.PENDING_PAYMENT, nullable=False)
     
-    # Address Snapshot (Preserved exactly as entered during checkout)
+    # Address Snapshot
     province = Column(String(100), nullable=False)
     city = Column(String(100), nullable=False)
     full_address = Column(Text, nullable=False)
@@ -22,7 +22,10 @@ class Order(Base):
     # Pricing Snapshot
     total_price = Column(Numeric(15, 2), nullable=False)
     total_items = Column(Integer, nullable=False)
-    reserved_until = Column(DateTime(timezone=True), nullable=True) # For inventory reservation
+    reserved_until = Column(DateTime(timezone=True), nullable=True)
+    
+    # Payment Method (NEW)
+    payment_method = Column(String(50), default="card_to_card", nullable=True)
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     bank_tracking_number = Column(String(50), nullable=True)
@@ -39,13 +42,12 @@ class OrderItem(Base):
     order_id = Column(Integer, ForeignKey("orders.id"), nullable=False)
     variant_id = Column(Integer, ForeignKey("product_variants.id"), nullable=False)
     
-    # Product Snapshot (Preserved even if product is deleted/changed later)
     product_title_snapshot = Column(String(255), nullable=False)
     variant_sku_snapshot = Column(String(100), nullable=True)
-    attribute_snapshot = Column(Text, nullable=True) # Stored as JSON string
+    attribute_snapshot = Column(Text, nullable=True)
     
     quantity = Column(Integer, nullable=False)
-    unit_price = Column(Numeric(15, 2), nullable=False) # Price paid at that exact moment
+    unit_price = Column(Numeric(15, 2), nullable=False)
     total_price = Column(Numeric(15, 2), nullable=False)
 
     order = relationship("Order", back_populates="items")

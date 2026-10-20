@@ -2,7 +2,7 @@ import json
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session, joinedload
 from decimal import Decimal
-from typing import List
+from typing import List, Optional
 
 from app.db.session import get_db
 from app.models.product import Product, ProductStatus, ProductVariant, VariantAttributeMapping, ProductAttributeValue, Category
@@ -39,7 +39,6 @@ def get_products(db: Session = Depends(get_db), current_user = Depends(get_curre
             base_price_val = float(variant.price_wholesale if customer_group == CustomerGroup.WHOLESALE else variant.price_shop_owner if customer_group == CustomerGroup.SHOP_OWNER else variant.price_visitor if customer_group == CustomerGroup.VISITOR else variant.price_normal)
             attrs = [ProductAttributeValueResponse(id=mapping.attribute_value.id, name=mapping.attribute_value.attribute.name, value=mapping.attribute_value.value) for mapping in variant.attribute_mappings]
             
-            # ✅ ALWAYS send the real stock number, no hiding
             variant_responses.append(ProductVariantResponse(
                 id=variant.id, 
                 sku=variant.sku, 
@@ -83,7 +82,6 @@ def search_products(q: str = Query(..., min_length=0, description="Search query 
             base_price_val = float(variant.price_wholesale if customer_group == CustomerGroup.WHOLESALE else variant.price_shop_owner if customer_group == CustomerGroup.SHOP_OWNER else variant.price_visitor if customer_group == CustomerGroup.VISITOR else variant.price_normal)
             attrs = [ProductAttributeValueResponse(id=m.attribute_value.id, name=m.attribute_value.attribute.name, value=m.attribute_value.value) for m in variant.attribute_mappings]
             
-            # ✅ ALWAYS send the real stock number, no hiding
             variant_responses.append(ProductVariantResponse(
                 id=variant.id, 
                 sku=variant.sku, 
@@ -110,10 +108,13 @@ def search_products(q: str = Query(..., min_length=0, description="Search query 
         ))
     return response_products
 
+# ✅ UPDATED: Returns category_id so the frontend can filter brands dynamically
 @router.get("/brands")
-def get_public_brands(db: Session = Depends(get_db)):
-    brands = db.query(Brand).all()
-    return [{"id": b.id, "name": b.name} for b in brands]
+def get_public_brands(category_id: Optional[int] = Query(None), db: Session = Depends(get_db)):
+    query = db.query(Brand)
+    if category_id:
+        query = query.filter(Brand.category_id == category_id)
+    return [{"id": b.id, "name": b.name, "slug": b.slug, "category_id": b.category_id} for b in query.all()]
 
 @router.get("/{product_id}")
 def get_product(product_id: int, db: Session = Depends(get_db), current_user = Depends(get_current_user)):
@@ -132,7 +133,6 @@ def get_product(product_id: int, db: Session = Depends(get_db), current_user = D
         base_price_val = float(calculate_final_price(variant, CustomerGroup.NORMAL))
         attrs = [ProductAttributeValueResponse(id=mapping.attribute_value.id, name=mapping.attribute_value.attribute.name, value=mapping.attribute_value.value) for mapping in variant.attribute_mappings]
         
-        # ✅ ALWAYS send the real stock number, no hiding. Fixed duplicate keys.
         variant_responses.append({
             "id": variant.id, 
             "sku": variant.sku,             

@@ -1,9 +1,10 @@
 import json
 import time
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.db.session import get_db
 from app.core.dependencies import require_admin
@@ -42,6 +43,7 @@ class OrderStatusUpdateSchema(BaseModel):
 class ProductUpdateSchema(BaseModel):
     title: Optional[str] = None
     title_en: Optional[str] = None
+    slug: Optional[str] = None
     description: Optional[str] = None
     image_url: Optional[str] = None
     brand_id: Optional[int] = None
@@ -54,6 +56,7 @@ class ProductUpdateSchema(BaseModel):
 class ProductCreateSchema(BaseModel):
     title: str
     title_en: Optional[str] = None
+    slug: Optional[str] = None
     description: Optional[str] = None
     image_url: Optional[str] = None
     brand_id: Optional[int] = None
@@ -63,20 +66,25 @@ class ProductCreateSchema(BaseModel):
 class CategorySchema(BaseModel):
     id: int
     name: str
+    slug: str
     class Config:
         from_attributes = True
 
 class BrandSchema(BaseModel):
     id: int
     name: str
+    slug: str
+    category_id: Optional[int] = None
     class Config:
         from_attributes = True
 
 class BrandCreateSchema(BaseModel):
     name: str
+    category_id: int # ✅ NEW: Mandatory category link
 
 class CategoryCreateSchema(BaseModel):
     name: str
+    slug: Optional[str] = None # ✅ NEW: Optional custom slug
 
 # ==========================================
 # 1. ENHANCED DASHBOARD STATS
@@ -110,7 +118,8 @@ def get_all_orders(status: Optional[str] = None, limit: int = Query(default=50, 
         "id": order.id, "user_id": order.user_id, "user_phone": order.user.phone_number if order.user else "Unknown",
         "user_name": order.user.full_name if order.user else "Unknown", "status": order.status.value if hasattr(order.status, 'value') else str(order.status),
         "total_price": float(order.total_price), "city": order.city, "province": order.province,
-        "full_address": order.full_address, "postal_code": order.postal_code,  # ✅ ADDED THESE TWO LINES
+        "full_address": order.full_address, "postal_code": order.postal_code,
+        "payment_method": order.payment_method, # ✅ ADDED for COD
         "created_at": order.created_at.isoformat() if order.created_at else None, "total_items": order.total_items,
         "bank_tracking_number": order.bank_tracking_number, "paid_at": order.paid_at.isoformat() if order.paid_at else None,
         "items": [{"product_title": item.product_title_snapshot, "quantity": item.quantity, "unit_price": float(item.unit_price)} for item in order.items]
@@ -126,6 +135,7 @@ def get_order_details(order_id: int, db: Session = Depends(get_db), current_user
         "status": order.status.value if hasattr(order.status, 'value') else str(order.status),
         "total_price": float(order.total_price), "province": order.province, "city": order.city,
         "full_address": order.full_address, "postal_code": order.postal_code, "created_at": order.created_at,
+        "payment_method": order.payment_method, # ✅ ADDED for COD
         "total_items": order.total_items,
         "items": [{"id": item.id, "product_title": item.product_title_snapshot, "variant_sku": item.variant_sku_snapshot, "quantity": item.quantity, "unit_price": float(item.unit_price), "total_price": float(item.total_price)} for item in order.items]
     }
@@ -150,19 +160,24 @@ def update_order_status(order_id: int, status_data: OrderStatusUpdateSchema, db:
     return {"message": "وضعیت سفارش با موفقیت بروزرسانی شد", "status": order.status.value if hasattr(order.status, 'value') else str(order.status)}
 
 # ==========================================
-# 3. BRAND & CATEGORY MANAGEMENT
+# 3. BRAND & CATEGORY MANAGEMENT (REFACTORED)
 # ==========================================
 @router.get("/categories", response_model=List[CategorySchema])
 def get_categories(db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
     return db.query(Category).all()
 
+# ✅ UPDATED: Brands are now filtered by category_id
 @router.get("/brands", response_model=List[BrandSchema])
-def get_brands(db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
-    return db.query(Brand).all()
+def get_brands(category_id: Optional[int] = None, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    query = db.query(Brand)
+    if category_id:
+        query = query.filter(Brand.category_id == category_id)
+    return query.all()
 
+# ✅ UPDATED: Brand creation now requires category_id
 @router.post("/brands")
 def create_brand(data: BrandCreateSchema, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
-    brand = Brand(name=data.name, slug=data.name.lower().replace(" ", "-"))
+    brand = Brand(name=data.name, slug=data.name.lower().replace(" ", "-"), category_id=data.category_id)
     db.add(brand); db.commit(); db.refresh(brand)
     return {"id": brand.id, "name": brand.name}
 
@@ -174,17 +189,20 @@ def delete_brand(brand_id: int, db: Session = Depends(get_db), current_user: Use
     db.delete(brand); db.commit()
     return {"message": "Brand deleted successfully"}
 
+# ✅ UPDATED: Category creation now accepts optional custom slug
 @router.post("/categories")
 def create_category(data: CategoryCreateSchema, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
-    cat = Category(name=data.name, slug=data.name.lower().replace(" ", "-"), is_landing_category=1)
+    generated_slug = data.slug or data.name.lower().replace(" ", "-").strip("-") if data.name else None
+    cat = Category(name=data.name, slug=generated_slug, is_landing_category=1)
     db.add(cat); db.commit(); db.refresh(cat)
-    return {"id": cat.id, "name": cat.name}
+    return {"id": cat.id, "name": cat.name, "slug": cat.slug}
 
 @router.delete("/categories/{category_id}")
 def delete_category(category_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
     cat = db.query(Category).filter(Category.id == category_id).first()
     if not cat: raise HTTPException(status_code=404, detail="Category not found")
     db.query(Product).filter(Product.category_id == category_id).update({"category_id": None})
+    db.query(Brand).filter(Brand.category_id == category_id).update({"category_id": None}) # ✅ Clean up brands too
     db.delete(cat); db.commit()
     return {"message": "Category deleted successfully"}
 
@@ -193,8 +211,10 @@ def delete_category(category_id: int, db: Session = Depends(get_db), current_use
 # ==========================================
 @router.post("/products/")
 def create_product(data: ProductCreateSchema, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    generated_slug = data.slug or data.title.replace(" ", "-").strip("-") if data.title else None
+    
     product = Product(
-        title=data.title, title_en=data.title_en, description=data.description, image_url=data.image_url,
+        title=data.title, title_en=data.title_en, slug=generated_slug, description=data.description, image_url=data.image_url,
         brand_id=data.brand_id, category_id=data.category_id, status=ProductStatus.ACTIVE, is_active=True,
         specifications=json.dumps(data.specifications) if data.specifications else None
     )
@@ -206,7 +226,7 @@ def get_admin_products(page: int = 1, limit: int = 10, db: Session = Depends(get
     total = db.query(Product).count()
     products = db.query(Product).order_by(Product.id.asc()).offset((page - 1) * limit).limit(limit).all()
     return {
-        "items": [{"id": p.id, "title": p.title, "title_en": p.title_en, "image_url": p.image_url, "status": p.status.value if hasattr(p.status, 'value') else str(p.status), "is_active": p.is_active} for p in products],
+        "items": [{"id": p.id, "title": p.title, "title_en": p.title_en, "slug": p.slug, "image_url": p.image_url, "status": p.status.value if hasattr(p.status, 'value') else str(p.status), "is_active": p.is_active} for p in products],
         "total": total, "page": page, "limit": limit, "total_pages": (total + limit - 1) // limit
     }
 
@@ -218,7 +238,8 @@ def get_admin_product_details(product_id: int, db: Session = Depends(get_db), cu
     ).filter(Product.id == product_id).first()
     if not product: raise HTTPException(status_code=404, detail="Product not found")
     return {
-        "id": product.id, "title": product.title, "title_en": product.title_en or "", "description": product.description or "",
+        "id": product.id, "title": product.title, "title_en": product.title_en or "", "slug": product.slug or "",
+        "description": product.description or "",
         "image_url": product.image_url or "", "brand_id": product.brand_id, "category_id": product.category_id,
         "specifications": json.loads(product.specifications) if product.specifications else [],
         "attributes": [{"id": attr.id, "name": attr.name, "values": [val.value for val in attr.values]} for attr in product.attributes],
@@ -238,6 +259,7 @@ def update_product(product_id: int, update_data: ProductUpdateSchema, db: Sessio
     
     if update_data.title is not None: product.title = update_data.title
     if update_data.title_en is not None: product.title_en = update_data.title_en
+    if update_data.slug is not None: product.slug = update_data.slug
     if update_data.description is not None: product.description = update_data.description
     if update_data.image_url is not None: product.image_url = update_data.image_url
     if update_data.brand_id is not None: product.brand_id = update_data.brand_id
@@ -269,7 +291,6 @@ def update_product(product_id: int, update_data: ProductUpdateSchema, db: Sessio
                     variant.price_wholesale = float(var_data.get("price_wholesale", 0))
                     variant.discount_percent = int(var_data.get("discount_percent", 0))
                     
-                    # ✅ SAFE STOCK QUANTITY PARSING (Handles 0 correctly)
                     raw_stock = var_data.get("stock_quantity")
                     variant.stock_quantity = int(raw_stock) if raw_stock not in (None, "", "null") else 0
                     
@@ -374,3 +395,34 @@ def cleanup_expired_reservations(db: Session = Depends(get_db), current_user: Us
         released_count += 1
     db.commit()
     return {"message": f"Successfully cancelled {released_count} expired orders and released inventory."}
+
+# ==========================================
+# 6. MONTHLY SALES REPORT
+# ==========================================
+class MonthlySalesResponse(BaseModel):
+    product_title: str
+    total_quantity: int
+    total_revenue: float
+
+@router.get("/reports/monthly-sales", response_model=List[MonthlySalesResponse])
+def get_monthly_sales_report(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    now = datetime.now(timezone.utc)
+    first_day_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    
+    results = db.query(
+        OrderItem.product_title_snapshot,
+        func.sum(OrderItem.quantity).label('total_quantity'),
+        func.sum(OrderItem.total_price).label('total_revenue')
+    ).join(Order, OrderItem.order_id == Order.id).filter(
+        Order.status.in_(['paid', 'processing', 'delivered', 'completed']),
+        Order.created_at >= first_day_of_month
+    ).group_by(OrderItem.product_title_snapshot).all()
+    
+    return [{
+        "product_title": row.product_title_snapshot,
+        "total_quantity": int(row.total_quantity or 0),
+        "total_revenue": float(row.total_revenue or 0.0)
+    } for row in results]
