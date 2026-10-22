@@ -1,17 +1,9 @@
-def send_purchase_sms(phone_number: str, order_id: int, amount: int):
-    """
-    Sends a thank you / purchase confirmation SMS to the user.
-    
-    TODO: Tomorrow, replace this mock with your chosen provider's SDK (e.g., Kavenegar, Melipayamak).
-    Example for Kavenegar:
-        from kavenegar import *
-        api = KavenegarAPI('YOUR_API_KEY')
-        message = f"سفارش شما با شماره {order_id} با موفقیت ثبت شد. مبلغ: {amount} تومان. از خرید شما متشکریم!"
-        api.sms_send({'receptor': phone_number, 'message': message})
-    """
-    
-    # 🚨 MOCK IMPLEMENTATION (Safe for testing today)
-    print(f"\n🔥 [MOCK SMS] Sending to {phone_number}: سفارش #{order_id} با موفقیت ثبت شد. مبلغ: {amount} تومان. از خرید شما متشکریم! 🔥\n")
-    
-    # TODO: Uncomment the real API call tomorrow and delete the print statement above.
-    # return True
+# app/services/sms_service.py
+import logging
+
+logger = logging.getLogger(__name__)
+
+def send_purchase_sms(phone_number: str, order_id: int):
+    """Send purchase confirmation SMS (Mocked for now, can be replaced with real API later)"""
+    logger.info(f"📱 [MOCK SMS] Thank you! Your order #{order_id} has been successfully placed. Sent to {phone_number}")
+    return True
