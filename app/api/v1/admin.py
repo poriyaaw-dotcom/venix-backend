@@ -52,6 +52,9 @@ class ProductUpdateSchema(BaseModel):
     attributes: Optional[list] = None
     variants: Optional[list] = None
     specifications: Optional[list] = None
+    meta_title: Optional[str] = None
+    meta_description: Optional[str] = None
+    image_alt_text: Optional[str] = None
 
 class ProductCreateSchema(BaseModel):
     title: str
@@ -62,11 +65,17 @@ class ProductCreateSchema(BaseModel):
     brand_id: Optional[int] = None
     category_id: Optional[int] = None
     specifications: Optional[list] = None
+    meta_title: Optional[str] = None
+    meta_description: Optional[str] = None
+    image_alt_text: Optional[str] = None
 
 class CategorySchema(BaseModel):
     id: int
     name: str
     slug: str
+    meta_title: Optional[str] = None
+    meta_description: Optional[str] = None
+    image_alt_text: Optional[str] = None
     class Config:
         from_attributes = True
 
@@ -80,11 +89,14 @@ class BrandSchema(BaseModel):
 
 class BrandCreateSchema(BaseModel):
     name: str
-    category_id: int # ✅ NEW: Mandatory category link
+    category_id: int
 
 class CategoryCreateSchema(BaseModel):
     name: str
-    slug: Optional[str] = None # ✅ NEW: Optional custom slug
+    slug: Optional[str] = None
+    meta_title: Optional[str] = None
+    meta_description: Optional[str] = None
+    image_alt_text: Optional[str] = None
 
 # ==========================================
 # 1. ENHANCED DASHBOARD STATS
@@ -119,7 +131,7 @@ def get_all_orders(status: Optional[str] = None, limit: int = Query(default=50, 
         "user_name": order.user.full_name if order.user else "Unknown", "status": order.status.value if hasattr(order.status, 'value') else str(order.status),
         "total_price": float(order.total_price), "city": order.city, "province": order.province,
         "full_address": order.full_address, "postal_code": order.postal_code,
-        "payment_method": order.payment_method, # ✅ ADDED for COD
+        "payment_method": order.payment_method,
         "created_at": order.created_at.isoformat() if order.created_at else None, "total_items": order.total_items,
         "bank_tracking_number": order.bank_tracking_number, "paid_at": order.paid_at.isoformat() if order.paid_at else None,
         "items": [{"product_title": item.product_title_snapshot, "quantity": item.quantity, "unit_price": float(item.unit_price)} for item in order.items]
@@ -135,7 +147,7 @@ def get_order_details(order_id: int, db: Session = Depends(get_db), current_user
         "status": order.status.value if hasattr(order.status, 'value') else str(order.status),
         "total_price": float(order.total_price), "province": order.province, "city": order.city,
         "full_address": order.full_address, "postal_code": order.postal_code, "created_at": order.created_at,
-        "payment_method": order.payment_method, # ✅ ADDED for COD
+        "payment_method": order.payment_method,
         "total_items": order.total_items,
         "items": [{"id": item.id, "product_title": item.product_title_snapshot, "variant_sku": item.variant_sku_snapshot, "quantity": item.quantity, "unit_price": float(item.unit_price), "total_price": float(item.total_price)} for item in order.items]
     }
@@ -160,13 +172,34 @@ def update_order_status(order_id: int, status_data: OrderStatusUpdateSchema, db:
     return {"message": "وضعیت سفارش با موفقیت بروزرسانی شد", "status": order.status.value if hasattr(order.status, 'value') else str(order.status)}
 
 # ==========================================
-# 3. BRAND & CATEGORY MANAGEMENT (REFACTORED)
+# 3. BRAND & CATEGORY MANAGEMENT
 # ==========================================
 @router.get("/categories", response_model=List[CategorySchema])
 def get_categories(db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
     return db.query(Category).all()
 
-# ✅ UPDATED: Brands are now filtered by category_id
+# ✅ NEW: UPDATE Category Endpoint
+@router.put("/categories/{category_id}")
+def update_category(
+    category_id: int, 
+    data: CategoryCreateSchema, 
+    db: Session = Depends(get_db), 
+    current_user: User = Depends(require_admin)
+):
+    cat = db.query(Category).filter(Category.id == category_id).first()
+    if not cat:
+        raise HTTPException(status_code=404, detail="دسته‌بندی یافت نشد")
+    
+    cat.name = data.name
+    cat.slug = data.slug or data.name.lower().replace(" ", "-").strip("-")
+    cat.meta_title = data.meta_title
+    cat.meta_description = data.meta_description
+    cat.image_alt_text = data.image_alt_text
+    
+    db.commit()
+    db.refresh(cat)
+    return {"id": cat.id, "name": cat.name, "slug": cat.slug, "message": "دسته‌بندی با موفقیت بروزرسانی شد"}
+
 @router.get("/brands", response_model=List[BrandSchema])
 def get_brands(category_id: Optional[int] = None, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
     query = db.query(Brand)
@@ -174,7 +207,6 @@ def get_brands(category_id: Optional[int] = None, db: Session = Depends(get_db),
         query = query.filter(Brand.category_id == category_id)
     return query.all()
 
-# ✅ UPDATED: Brand creation now requires category_id
 @router.post("/brands")
 def create_brand(data: BrandCreateSchema, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
     brand = Brand(name=data.name, slug=data.name.lower().replace(" ", "-"), category_id=data.category_id)
@@ -189,11 +221,13 @@ def delete_brand(brand_id: int, db: Session = Depends(get_db), current_user: Use
     db.delete(brand); db.commit()
     return {"message": "Brand deleted successfully"}
 
-# ✅ UPDATED: Category creation now accepts optional custom slug
 @router.post("/categories")
 def create_category(data: CategoryCreateSchema, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
     generated_slug = data.slug or data.name.lower().replace(" ", "-").strip("-") if data.name else None
-    cat = Category(name=data.name, slug=generated_slug, is_landing_category=1)
+    cat = Category(
+        name=data.name, slug=generated_slug, is_landing_category=1,
+        meta_title=data.meta_title, meta_description=data.meta_description, image_alt_text=data.image_alt_text
+    )
     db.add(cat); db.commit(); db.refresh(cat)
     return {"id": cat.id, "name": cat.name, "slug": cat.slug}
 
@@ -202,7 +236,7 @@ def delete_category(category_id: int, db: Session = Depends(get_db), current_use
     cat = db.query(Category).filter(Category.id == category_id).first()
     if not cat: raise HTTPException(status_code=404, detail="Category not found")
     db.query(Product).filter(Product.category_id == category_id).update({"category_id": None})
-    db.query(Brand).filter(Brand.category_id == category_id).update({"category_id": None}) # ✅ Clean up brands too
+    db.query(Brand).filter(Brand.category_id == category_id).update({"category_id": None})
     db.delete(cat); db.commit()
     return {"message": "Category deleted successfully"}
 
@@ -216,7 +250,8 @@ def create_product(data: ProductCreateSchema, db: Session = Depends(get_db), cur
     product = Product(
         title=data.title, title_en=data.title_en, slug=generated_slug, description=data.description, image_url=data.image_url,
         brand_id=data.brand_id, category_id=data.category_id, status=ProductStatus.ACTIVE, is_active=True,
-        specifications=json.dumps(data.specifications) if data.specifications else None
+        specifications=json.dumps(data.specifications) if data.specifications else None,
+        meta_title=data.meta_title, meta_description=data.meta_description, image_alt_text=data.image_alt_text
     )
     db.add(product); db.commit(); db.refresh(product)
     return {"id": product.id, "title": product.title, "message": "محصول با موفقیت ایجاد شد"}
@@ -234,7 +269,7 @@ def get_admin_products(page: int = 1, limit: int = 10, db: Session = Depends(get
 def get_admin_product_details(product_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
     product = db.query(Product).order_by(Product.id.asc()).options(
         joinedload(Product.attributes).joinedload(ProductAttribute.values),
-        joinedload(Product.variants).joinedload(ProductVariant.attribute_mappings)
+        joinedload(Product.variants).joinedload(ProductVariant.attribute_mappings).joinedload(VariantAttributeMapping.attribute_value).joinedload(ProductAttributeValue.attribute)
     ).filter(Product.id == product_id).first()
     if not product: raise HTTPException(status_code=404, detail="Product not found")
     return {
@@ -242,6 +277,7 @@ def get_admin_product_details(product_id: int, db: Session = Depends(get_db), cu
         "description": product.description or "",
         "image_url": product.image_url or "", "brand_id": product.brand_id, "category_id": product.category_id,
         "specifications": json.loads(product.specifications) if product.specifications else [],
+        "meta_title": product.meta_title or "", "meta_description": product.meta_description or "", "image_alt_text": product.image_alt_text or "",
         "attributes": [{"id": attr.id, "name": attr.name, "values": [val.value for val in attr.values]} for attr in product.attributes],
         "variants": [{
             "id": var.id, "sku": var.sku or "", "price_normal": float(var.price_normal) if var.price_normal else 0,
@@ -265,6 +301,9 @@ def update_product(product_id: int, update_data: ProductUpdateSchema, db: Sessio
     if update_data.brand_id is not None: product.brand_id = update_data.brand_id
     if update_data.category_id is not None: product.category_id = update_data.category_id
     if update_data.specifications is not None: product.specifications = json.dumps(update_data.specifications)
+    if update_data.meta_title is not None: product.meta_title = update_data.meta_title
+    if update_data.meta_description is not None: product.meta_description = update_data.meta_description
+    if update_data.image_alt_text is not None: product.image_alt_text = update_data.image_alt_text
     
     if update_data.is_active is not None:
         product.is_active = update_data.is_active

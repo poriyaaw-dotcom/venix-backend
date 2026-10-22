@@ -19,17 +19,22 @@ class Category(Base):
     parent_id = Column(Integer, ForeignKey("categories.id"), nullable=True)
     is_landing_category = Column(Integer, default=0, nullable=False)
     
+    # ✅ NEW SEO FIELDS
+    meta_title = Column(String(100), nullable=True)
+    meta_description = Column(String(200), nullable=True)
+    image_alt_text = Column(String(200), nullable=True)
+    
     parent = relationship("Category", remote_side=[id], backref="children")
-    brands = relationship("Brand", back_populates="category", cascade="all, delete-orphan") # ✅ NEW
+    brands = relationship("Brand", back_populates="category", cascade="all, delete-orphan")
 
 class Brand(Base):
     __tablename__ = "brands"
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False)
     slug = Column(String(100), unique=True, index=True, nullable=False)
-    category_id = Column(Integer, ForeignKey("categories.id"), nullable=True) # ✅ NEW: Link to Category
+    category_id = Column(Integer, ForeignKey("categories.id"), nullable=True)
     
-    category = relationship("Category", back_populates="brands") # ✅ NEW
+    category = relationship("Category", back_populates="brands")
 
 class Tag(Base):
     __tablename__ = "tags"
@@ -52,6 +57,11 @@ class Product(Base):
     average_rating = Column(Numeric(3, 2), default=0.00, nullable=False)
     review_count = Column(Integer, default=0, nullable=False)
     specifications = Column(Text, nullable=True)
+    
+    # ✅ NEW SEO FIELDS
+    meta_title = Column(String(100), nullable=True)
+    meta_description = Column(String(200), nullable=True)
+    image_alt_text = Column(String(200), nullable=True)
     
     category_id = Column(Integer, ForeignKey("categories.id"), nullable=True)
     brand_id = Column(Integer, ForeignKey("brands.id"), nullable=True)

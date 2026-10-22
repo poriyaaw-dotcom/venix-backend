@@ -1,4 +1,3 @@
-# app/api/v1/blog.py
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
@@ -11,18 +10,11 @@ from app.schemas.blog import BlogCreate, BlogResponse
 
 router = APIRouter(prefix="/blog", tags=["Blog"])
 
-# ==========================================
-# PUBLIC ENDPOINTS
-# ==========================================
 @router.get("/", response_model=List[BlogResponse])
 def get_public_blogs(db: Session = Depends(get_db)):
     blogs = db.query(Blog).filter(Blog.is_active == True).order_by(Blog.created_at.desc()).all()
     return blogs
 
-# ==========================================
-# ADMIN ENDPOINTS 
-# ⚠️ MUST BE PLACED BEFORE /{blog_id}
-# ==========================================
 @router.get("/admin", response_model=List[BlogResponse])
 def get_all_blogs_admin(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     if not getattr(current_user, "is_admin", False):
@@ -31,11 +23,7 @@ def get_all_blogs_admin(db: Session = Depends(get_db), current_user: User = Depe
     return blogs
 
 @router.post("/", response_model=BlogResponse)
-def create_blog(
-    blog_data: BlogCreate, 
-    db: Session = Depends(get_db), 
-    current_user: User = Depends(require_admin)
-):
+def create_blog(blog_data: BlogCreate, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
     new_blog = Blog(
         title=blog_data.title,
         content=blog_data.content,
@@ -47,14 +35,8 @@ def create_blog(
     db.refresh(new_blog)
     return new_blog
 
-# ✅ BULLETPROOF UPDATE: Accepts a dict to avoid schema validation errors
 @router.put("/{blog_id}")
-def update_blog(
-    blog_id: int, 
-    blog_data: dict, 
-    db: Session = Depends(get_db), 
-    current_user: User = Depends(get_current_user)
-):
+def update_blog(blog_id: int, blog_data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     if not getattr(current_user, "is_admin", False):
         raise HTTPException(status_code=403, detail="Not authorized")
         
@@ -72,11 +54,7 @@ def update_blog(
     return blog
 
 @router.delete("/{blog_id}")
-def delete_blog(
-    blog_id: int, 
-    db: Session = Depends(get_db), 
-    current_user: User = Depends(require_admin)
-):
+def delete_blog(blog_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
     blog = db.query(Blog).filter(Blog.id == blog_id).first()
     if not blog:
         raise HTTPException(status_code=404, detail="Blog not found")
@@ -85,10 +63,6 @@ def delete_blog(
     db.commit()
     return {"message": "Blog deleted successfully"}
 
-# ==========================================
-# PUBLIC ENDPOINTS WITH PATH VARIABLES
-# ⚠️ MUST BE PLACED LAST
-# ==========================================
 @router.get("/{blog_id}")
 def get_single_blog(blog_id: int, db: Session = Depends(get_db)):
     blog = db.query(Blog).filter(Blog.id == blog_id, Blog.is_active == True).first()

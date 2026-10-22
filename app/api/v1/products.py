@@ -20,7 +20,15 @@ router = APIRouter(prefix="/products", tags=["Products"])
 @router.get("/categories")
 def get_public_categories(db: Session = Depends(get_db)):
     categories = db.query(Category).filter(Category.is_landing_category == 1).all()
-    return [{"id": c.id, "name": c.name, "slug": c.slug, "image_url": c.image_url} for c in categories]
+    return [{
+        "id": c.id, 
+        "name": c.name, 
+        "slug": c.slug, 
+        "image_url": c.image_url,
+        "meta_title": c.meta_title,
+        "meta_description": c.meta_description,
+        "image_alt_text": c.image_alt_text
+    } for c in categories]
 
 @router.get("/", response_model=List[ProductResponse])
 def get_products(db: Session = Depends(get_db), current_user = Depends(get_current_user), status_filter: str = Query(default="active", description="Filter by status: active, draft, hidden, out_of_stock")):
@@ -108,7 +116,6 @@ def search_products(q: str = Query(..., min_length=0, description="Search query 
         ))
     return response_products
 
-# ✅ UPDATED: Returns category_id so the frontend can filter brands dynamically
 @router.get("/brands")
 def get_public_brands(category_id: Optional[int] = Query(None), db: Session = Depends(get_db)):
     query = db.query(Brand)
@@ -157,5 +164,8 @@ def get_product(product_id: int, db: Session = Depends(get_db), current_user = D
         "average_rating": float(product.average_rating or 0.0), 
         "review_count": product.review_count or 0,
         "specifications": json.loads(getattr(product, "specifications", None)) if getattr(product, "specifications", None) else [],
-        "variants": variant_responses
+        "variants": variant_responses,
+        "meta_title": product.meta_title,
+        "meta_description": product.meta_description,
+        "image_alt_text": product.image_alt_text
     }
