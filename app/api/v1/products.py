@@ -44,7 +44,8 @@ def get_products(db: Session = Depends(get_db), current_user = Depends(get_curre
         variant_responses = []
         for variant in product.variants:
             final_price = calculate_final_price(variant, customer_group)
-            base_price_val = float(variant.price_wholesale if customer_group == CustomerGroup.WHOLESALE else variant.price_shop_owner if customer_group == CustomerGroup.SHOP_OWNER else variant.price_visitor if customer_group == CustomerGroup.VISITOR else variant.price_normal)
+            # ✅ FIX: Use price_normal directly as base_price
+            base_price_val = float(variant.price_normal)
             attrs = [ProductAttributeValueResponse(id=mapping.attribute_value.id, name=mapping.attribute_value.attribute.name, value=mapping.attribute_value.value) for mapping in variant.attribute_mappings]
             
             variant_responses.append(ProductVariantResponse(
@@ -87,7 +88,8 @@ def search_products(q: str = Query(..., min_length=0, description="Search query 
         variant_responses = []
         for variant in product.variants:
             final_price = calculate_final_price(variant, customer_group)
-            base_price_val = float(variant.price_wholesale if customer_group == CustomerGroup.WHOLESALE else variant.price_shop_owner if customer_group == CustomerGroup.SHOP_OWNER else variant.price_visitor if customer_group == CustomerGroup.VISITOR else variant.price_normal)
+            # ✅ FIX: Use price_normal directly as base_price
+            base_price_val = float(variant.price_normal)
             attrs = [ProductAttributeValueResponse(id=m.attribute_value.id, name=m.attribute_value.attribute.name, value=m.attribute_value.value) for m in variant.attribute_mappings]
             
             variant_responses.append(ProductVariantResponse(
@@ -137,7 +139,8 @@ def get_product(product_id: int, db: Session = Depends(get_db), current_user = D
     variant_responses = []
     for variant in product.variants:
         final_price = calculate_final_price(variant, customer_group)
-        base_price_val = float(calculate_final_price(variant, CustomerGroup.NORMAL))
+        # ✅ FIX: Use price_normal directly as base_price
+        base_price_val = float(variant.price_normal)
         attrs = [ProductAttributeValueResponse(id=mapping.attribute_value.id, name=mapping.attribute_value.attribute.name, value=mapping.attribute_value.value) for mapping in variant.attribute_mappings]
         
         variant_responses.append({
