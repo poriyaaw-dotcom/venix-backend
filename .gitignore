@@ -10,3 +10,12 @@ __pycache__/
 .env
 backend.log
 backend.log
+
+# Ignore heavy/unnecessary files
+venv/
+__pycache__/
+*.pyc
+.env
+uploads/
+backend.log
+*.sqlite3

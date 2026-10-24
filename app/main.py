@@ -44,9 +44,20 @@ app = FastAPI(
 # ✅ SECURITY: Strict CORS Configuration
 allowed_origins = ["*"]
 
+# Smart Caching: Prevent caching ONLY on data mutations and admin routes
+class SmartCacheMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        # If it's a POST, PUT, DELETE, PATCH, or an admin route, force fresh data
+        if request.method in ['POST', 'PUT', 'DELETE', 'PATCH'] or '/admin/' in request.url.path:
+            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        return response
+
+app.add_middleware(SmartCacheMiddleware)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins,
+    allow_origins=settings.ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["Content-Type", "Authorization", "Accept"],

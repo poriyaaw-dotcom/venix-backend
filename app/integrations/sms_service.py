@@ -1,5 +1,5 @@
 # app/integrations/sms_service.py
-import requests
+import httpx
 import logging
 from app.core.config import get_settings
 
@@ -25,7 +25,7 @@ def send_otp_sms(phone: str, code: str):
     }
     
     try:
-        response = requests.post(url, json=payload, headers=headers, timeout=10)
+        response = httpx.post(url, json=payload, headers=headers, timeout=10)
         response_data = response.json()
         
         # Melipayamak returns RetStatus: 1 for success
@@ -38,7 +38,7 @@ def send_otp_sms(phone: str, code: str):
             logger.error(f"❌ Melipayamak API Error {error_code}: {error_msg} for phone {phone}")
             return False
             
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         logger.error(f"❌ Network error while sending SMS to {phone}: {e}")
         return False
 
