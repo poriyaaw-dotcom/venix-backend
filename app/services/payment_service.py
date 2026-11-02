@@ -38,7 +38,7 @@ def initiate_payment(db: Session, order_id: int, idempotency_key: str) -> dict:
 
     # 4. Get Payment URL from Gateway (Mock or Real)
     amount_in_rials = float(order.total_price) * 10
-    callback_url = "http://localhost:3000/payment/callback"
+    callback_url = "https://venixpodshop.ir/payment/callback"
     
     gateway_response = payment_gateway.generate_payment_url(amount_in_rials, order_id, callback_url)
 

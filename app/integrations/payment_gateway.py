@@ -23,7 +23,7 @@ class MockPaymentGateway(BasePaymentGateway):
         # Here, we just simulate a transaction ID.
         mock_transaction_id = f"MOCK_TXN_{order_id}_{int(amount)}"
         return {
-            "payment_url": f"http://localhost:8000/payments/mock-success?tx={mock_transaction_id}",
+            "payment_url": f"https://api.venixpodshop.ir/payments/mock-success?tx={mock_transaction_id}",
             "transaction_id": mock_transaction_id
         }
 
