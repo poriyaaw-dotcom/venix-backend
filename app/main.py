@@ -40,11 +40,14 @@ app = FastAPI(
     redoc_url=redoc_url
 )
 
-# ✅ FIXED CORS: Explicit list of allowed origins
+# ✅ FIXED CORS: Explicit list of allowed origins (Added .com domains)
 allowed_origins = [
     "http://localhost:5173",
     "https://venixpodshop.ir",
     "https://www.venixpodshop.ir",
+    "https://venixpodshop.com",
+    "https://www.venixpodshop.com",
+    "https://admin.venixpodshop.ir",
     "https://admin.venixpodshop.com",
     "https://api.venixpodshop.ir",
     "https://api.venixpodshop.com"
