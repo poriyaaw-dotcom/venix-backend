@@ -5,7 +5,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
-from sqlalchemy.orm import Session  # ✅ ADDED MISSING IMPORT
+from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.db.session import get_db
@@ -29,7 +29,6 @@ from app.api.v1.payment import router as payment_router
 
 settings = get_settings()
 
-# ✅ SECURITY: Disable docs in production to prevent endpoint enumeration
 is_prod = os.getenv("ENVIRONMENT") == "production"
 docs_url = None if is_prod else "/docs"
 redoc_url = None if is_prod else "/redoc"
@@ -41,8 +40,15 @@ app = FastAPI(
     redoc_url=redoc_url
 )
 
-# ✅ SECURITY: Strict CORS Configuration
-allowed_origins = ["*"]
+# ✅ FIXED CORS: Explicit list of allowed origins
+allowed_origins = [
+    "http://localhost:5173",
+    "https://venixpodshop.ir",
+    "https://www.venixpodshop.ir",
+    "https://admin.venixpodshop.com",
+    "https://api.venixpodshop.ir",
+    "https://api.venixpodshop.com"
+]
 
 app.add_middleware(
     CORSMiddleware,
@@ -52,7 +58,6 @@ app.add_middleware(
     allow_headers=["Content-Type", "Authorization", "Accept"],
 )
 
-# ✅ SECURITY: Add Security Headers Middleware
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
@@ -65,7 +70,6 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(SecurityHeadersMiddleware)
 
-# ✅ SECURITY: Hide detailed server errors in production
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     if is_prod:
@@ -75,7 +79,6 @@ async def global_exception_handler(request: Request, exc: Exception):
         )
     raise exc
 
-# Routers
 app.include_router(health_router, prefix="/api/v1", tags=["Health"])
 app.include_router(auth_router, prefix="/api/v1", tags=["Authentication"])
 app.include_router(products_router, prefix="/api/v1", tags=["Products"])
@@ -94,7 +97,6 @@ app.include_router(upload_router, prefix="/api/v1", tags=["Upload"])
 async def root():
     return {"message": f"Welcome to {settings.APP_NAME}"}
 
-# ✅ NEW: Dynamic Sitemap.xml Endpoint for SEO
 @app.get("/sitemap.xml", include_in_schema=False)
 async def get_sitemap(db: Session = Depends(get_db)):
     products = db.query(Product).filter(Product.is_active == True).all()
@@ -102,8 +104,7 @@ async def get_sitemap(db: Session = Depends(get_db)):
     
     xml = '<?xml version="1.0" encoding="UTF-8"?>\n'
     xml += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
-    
-    base_url = "https://venixpodshop.com" # This will be your live domain
+    base_url = "https://venixpodshop.ir"
     
     xml += f'  <url><loc>{base_url}/</loc><priority>1.0</priority></url>\n'
     xml += f'  <url><loc>{base_url}/shop</loc><priority>0.9</priority></url>\n'
@@ -117,8 +118,6 @@ async def get_sitemap(db: Session = Depends(get_db)):
         xml += f'  <url><loc>{base_url}/product/{prod.id}</loc><priority>0.7</priority></url>\n'
         
     xml += '</urlset>'
-    
     return Response(content=xml, media_type="application/xml")
 
-# Serve uploaded images statically
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
