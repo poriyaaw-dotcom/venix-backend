@@ -13,7 +13,7 @@ class Blog(Base):
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
-    # ✅ NEW SEO FIELDS
-    meta_title = Column(String(100), nullable=True)
-    meta_description = Column(String(200), nullable=True)
-    image_alt_text = Column(String(200), nullable=True)
+    # ✅ SEO FIELDS (Perfectly matching the server database update)
+    meta_title = Column(String(255), nullable=True)
+    meta_description = Column(Text, nullable=True)
+    image_alt_text = Column(String(255), nullable=True)
