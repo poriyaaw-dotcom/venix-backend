@@ -1,3 +1,4 @@
+# app/schemas/product.py
 from pydantic import BaseModel
 from typing import List, Optional
 from decimal import Decimal
@@ -18,12 +19,12 @@ class ProductVariantResponse(BaseModel):
     id: int
     sku: Optional[str] = None
     stock_quantity: Optional[int] = None
-    in_stock: bool = True                # ✅ ADDED: Explicit availability flag
+    in_stock: bool = True
     final_price: Decimal
     base_price: float = 0.0
     discount_percent: int = 0
     attributes: List[ProductAttributeValueResponse] = []
-    attributes_text: Optional[str] = ""  # ✅ KEPT: Required for frontend variant display
+    attributes_text: Optional[str] = ""
 
     class Config:
         from_attributes = True
@@ -32,15 +33,19 @@ class ProductResponse(BaseModel):
     id: int
     title: str
     title_en: Optional[str] = None
+    slug: Optional[str] = None                 # ✅ Added
     description: Optional[str] = None
     image_url: Optional[str] = None
-    status: Optional[str] = None         # ✅ FIXED: Made optional to prevent validation errors
+    image_alt_text: Optional[str] = None       # ✅ Added
+    meta_title: Optional[str] = None           # ✅ Added
+    meta_description: Optional[str] = None     # ✅ Added
+    status: Optional[str] = None
     category_name: Optional[str] = None
     brand_name: Optional[str] = None
     average_rating: float = 0.0
     review_count: int = 0
     variants: List[ProductVariantResponse] = []
-    specifications: Optional[list] = []  # ✅ KEPT: Required for frontend specs display
+    specifications: Optional[list] = []
 
     class Config:
         from_attributes = True

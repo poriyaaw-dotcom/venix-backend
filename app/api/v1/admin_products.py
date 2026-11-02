@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel
 from decimal import Decimal
+import json
 
 from app.db.session import get_db
 from app.core.dependencies import require_admin
@@ -15,7 +16,7 @@ from app.models.product import (
     ProductVariant, 
     VariantAttributeMapping
 )
-from app.models.enums import ProductStatus # Importing your enum for the status
+from app.models.enums import ProductStatus
 
 from app.schemas.product import (
     ProductAttributeCreate,
@@ -28,26 +29,44 @@ from app.schemas.product import (
 
 router = APIRouter(prefix="/admin/products", tags=["Admin Products"])
 
-# --- Schemas for Base Product ---
+# --- Schemas for Base Product (UPDATED WITH ALL FIELDS) ---
 class ProductCreate(BaseModel):
     title: str
     title_en: Optional[str] = None
+    slug: Optional[str] = None
     description: Optional[str] = None
     image_url: Optional[str] = None
+    category_id: Optional[int] = None
+    brand_id: Optional[int] = None
+    specifications: Optional[list] = None
+    # SEO Fields
+    meta_title: Optional[str] = None
+    meta_description: Optional[str] = None
+    image_alt_text: Optional[str] = None
+    is_active: Optional[bool] = True
 
-# --- 1. Create Base Product (NEW) ---
+# --- 1. Create Base Product ---
 @router.post("/", response_model=dict)
 def create_base_product(
     product_data: ProductCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
 ):
-    """Admin creates the base product details."""
+    specs_json = json.dumps(product_data.specifications) if product_data.specifications else None
+    
     new_product = Product(
         title=product_data.title,
         title_en=product_data.title_en,
+        slug=product_data.slug,
         description=product_data.description,
-        image_url=product_data.image_url, # ✅ Now it saves the uploaded image!
+        image_url=product_data.image_url,
+        category_id=product_data.category_id,
+        brand_id=product_data.brand_id,
+        specifications=specs_json,
+        meta_title=product_data.meta_title,
+        meta_description=product_data.meta_description,
+        image_alt_text=product_data.image_alt_text,
+        is_active=product_data.is_active,
         status=ProductStatus.ACTIVE
     )
     db.add(new_product)
@@ -63,16 +82,27 @@ def update_base_product(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
 ):
-    """Admin updates the base product details."""
     product = db.query(Product).filter(Product.id == product_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
     
     product.title = product_data.title
     product.title_en = product_data.title_en
+    product.slug = product_data.slug
     product.description = product_data.description
     if product_data.image_url is not None:
         product.image_url = product_data.image_url
+    product.category_id = product_data.category_id
+    product.brand_id = product_data.brand_id
+    product.is_active = product_data.is_active
+    
+    # SEO Fields Update
+    product.meta_title = product_data.meta_title
+    product.meta_description = product_data.meta_description
+    product.image_alt_text = product_data.image_alt_text
+    
+    if product_data.specifications is not None:
+        product.specifications = json.dumps(product_data.specifications)
         
     db.commit()
     db.refresh(product)
@@ -86,7 +116,6 @@ def create_product_attribute(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
 ):
-    """Admin creates a new attribute for a product (e.g., 'Color', 'Flavor')."""
     product = db.query(Product).filter(Product.id == product_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
@@ -107,7 +136,6 @@ def create_attribute_value(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
 ):
-    """Admin creates a value for an attribute (e.g., 'Red', 'Blue' for Color)."""
     attribute = db.query(ProductAttribute).filter(ProductAttribute.id == attribute_id).first()
     if not attribute:
         raise HTTPException(status_code=404, detail="Attribute not found")
@@ -129,17 +157,15 @@ def create_product_variant(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
 ):
-    """Admin creates a variant for a product with specific attribute combinations."""
     product = db.query(Product).filter(Product.id == product_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
     
-    # Create the variant
     variant = ProductVariant(
         product_id=product_id,
         sku=variant_data.sku,
         purchase_cost=variant_data.purchase_cost,
-        price_normal=getattr(variant_data, 'price_normal', None) or variant_data.purchase_cost,
+        price_normal=getattr(variant_data,'price_normal', None) or variant_data.purchase_cost,
         price_visitor=getattr(variant_data, 'price_visitor', None) if getattr(variant_data, 'price_visitor', None) is not None else variant_data.purchase_cost,
         price_shop_owner=getattr(variant_data, 'price_shop_owner', None) if getattr(variant_data, 'price_shop_owner', None) is not None else variant_data.purchase_cost,
         price_wholesale=getattr(variant_data, 'price_wholesale', None) if getattr(variant_data, 'price_wholesale', None) is not None else variant_data.purchase_cost,
@@ -150,7 +176,6 @@ def create_product_variant(
     db.commit()
     db.refresh(variant)
     
-    # Map attribute values to the variant
     if variant_data.attribute_value_ids:
         for attr_value_id in variant_data.attribute_value_ids:
             attr_value = db.query(ProductAttributeValue).filter(ProductAttributeValue.id == attr_value_id).first()
@@ -172,14 +197,31 @@ def get_product_full_details(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
 ):
-    """Get product with all its attributes, values, and variants."""
     product = db.query(Product).filter(Product.id == product_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
     
+    # Parse specifications if it's a JSON string
+    specs = []
+    if product.specifications:
+        try:
+            specs = json.loads(product.specifications) if isinstance(product.specifications, str) else product.specifications
+        except:
+            specs = []
+
     return {
         "id": product.id,
         "title": product.title,
+        "title_en": product.title_en,
+        "slug": product.slug,
+        "description": product.description,
+        "image_url": product.image_url,
+        "category_id": product.category_id,
+        "brand_id": product.brand_id,
+        "meta_title": product.meta_title,
+        "meta_description": product.meta_description,
+        "image_alt_text": product.image_alt_text,
+        "specifications": specs,
         "attributes": [
             {
                 "id": attr.id,
