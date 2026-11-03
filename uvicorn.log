@@ -1,0 +1,241 @@
+nohup: ignoring input
+INFO:     Started server process [1335862]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:45702 - "GET /api/v1/health HTTP/1.1" 200 OK
+INFO:     89.187.169.11:0 - "OPTIONS /api/v1/admin/stats HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /api/v1/admin/stats HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /api/v1/products/categories HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /api/v1/products/categories HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /api/v1/products/search?q=&sort_by=newest HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /api/v1/products/categories HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /api/v1/blog/ HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /api/v1/products/search?q=&sort_by=newest HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /vape.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /salt.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /juice.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /nicotine.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /ecig.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /coil.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /disposable.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /pod.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /podmod.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /cartridge.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /api/v1/admin/stats HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "OPTIONS /api/v1/admin/products?page=1&limit=10 HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /api/v1/admin/products?page=1&limit=10 HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /uploads/54f1a77f-dd73-407e-97d2-c15f8c4d664e.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "OPTIONS /api/v1/admin/categories HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /uploads/4460dd70-6632-4dde-bf3c-ea60dbbcfe68.jpg HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /api/v1/admin/categories HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "OPTIONS /api/v1/admin/brands HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /api/v1/admin/brands HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "OPTIONS /api/v1/admin/products/3 HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /api/v1/admin/products/3 HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "PUT /api/v1/admin/products/3 HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /api/v1/admin/products?page=1&limit=10 HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /api/v1/admin/products/3 HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "OPTIONS /api/v1/upload/image HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /uploads/cover1.jpg HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /uploads/cover2.jpg HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /api/v1/reviews/product/3 HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /api/v1/products/3 HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "POST /api/v1/upload/image HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "PUT /api/v1/admin/products/3 HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /api/v1/admin/products?page=1&limit=10 HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /uploads/ac58d1a5-10cd-49e2-945b-68ec0e4178d0.png HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "OPTIONS /api/v1/admin/products/2 HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "PUT /api/v1/admin/products/2 HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /api/v1/admin/products?page=1&limit=10 HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /api/v1/admin/products/2 HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /uploads/cover1.jpg HTTP/1.0" 304 Not Modified
+INFO:     89.187.169.11:0 - "GET /api/v1/products/categories HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /api/v1/blog/ HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /api/v1/products/categories HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /api/v1/products/categories HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /api/v1/products/search?q=&sort_by=newest HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /api/v1/products/search?q=&sort_by=newest HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /ecig.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /pod.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /nicotine.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /uploads/4460dd70-6632-4dde-bf3c-ea60dbbcfe68.jpg HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /podmod.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /vape.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /uploads/ac58d1a5-10cd-49e2-945b-68ec0e4178d0.png HTTP/1.0" 304 Not Modified
+INFO:     89.187.169.11:0 - "GET /uploads/cover2.jpg HTTP/1.0" 304 Not Modified
+INFO:     89.187.169.11:0 - "GET /cartridge.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /juice.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /salt.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /disposable.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /coil.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /uploads/ac58d1a5-10cd-49e2-945b-68ec0e4178d0.png HTTP/1.0" 304 Not Modified
+INFO:     89.187.169.11:0 - "GET /api/v1/reviews/product/3 HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /api/v1/products/3 HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "POST /api/v1/upload/image HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "PUT /api/v1/admin/products/2 HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /api/v1/admin/products?page=1&limit=10 HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /uploads/494ee111-ddc7-469e-aff5-2fb547853647.png HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /uploads/cover1.jpg HTTP/1.0" 304 Not Modified
+INFO:     89.187.169.11:0 - "GET /api/v1/products/search?q=&sort_by=newest HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /api/v1/products/categories HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /api/v1/blog/ HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /uploads/ac58d1a5-10cd-49e2-945b-68ec0e4178d0.png HTTP/1.0" 304 Not Modified
+INFO:     89.187.169.11:0 - "GET /ecig.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /podmod.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /nicotine.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /vape.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /pod.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /uploads/cover2.jpg HTTP/1.0" 304 Not Modified
+INFO:     89.187.169.11:0 - "GET /api/v1/products/categories HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /api/v1/products/search?q=&sort_by=newest HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /api/v1/products/categories HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /salt.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /juice.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /cartridge.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /disposable.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /coil.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /uploads/494ee111-ddc7-469e-aff5-2fb547853647.png HTTP/1.0" 304 Not Modified
+INFO:     89.187.169.11:0 - "GET /uploads/ac58d1a5-10cd-49e2-945b-68ec0e4178d0.png HTTP/1.0" 304 Not Modified
+INFO:     89.187.169.11:0 - "OPTIONS /api/v1/admin/products/1 HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "PUT /api/v1/admin/products/1 HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /api/v1/admin/products?page=1&limit=10 HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /api/v1/admin/products/1 HTTP/1.0" 200 OK
+INFO:     109.105.210.73:59464 - "GET / HTTP/1.1" 200 OK
+INFO:     109.105.210.72:41212 - "POST /mcp HTTP/1.1" 404 Not Found
+INFO:     109.105.210.72:41212 - "GET /sse HTTP/1.1" 404 Not Found
+INFO:     109.105.210.72:41222 - "GET /favicon.ico HTTP/1.1" 404 Not Found
+INFO:     89.187.169.11:0 - "POST /api/v1/upload/image HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "OPTIONS /api/v1/upload/image HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /uploads/cover2.jpg HTTP/1.0" 304 Not Modified
+INFO:     89.187.169.11:0 - "GET /api/v1/products/categories HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /uploads/cover1.jpg HTTP/1.0" 304 Not Modified
+INFO:     89.187.169.11:0 - "GET /api/v1/products/search?q=&sort_by=newest HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /api/v1/products/categories HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /api/v1/products/categories HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /api/v1/products/search?q=&sort_by=newest HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /api/v1/blog/ HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /ecig.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /podmod.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /vape.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /nicotine.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /pod.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /juice.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /uploads/ac58d1a5-10cd-49e2-945b-68ec0e4178d0.png HTTP/1.0" 304 Not Modified
+INFO:     89.187.169.11:0 - "GET /disposable.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /coil.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /cartridge.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /uploads/ac58d1a5-10cd-49e2-945b-68ec0e4178d0.png HTTP/1.0" 304 Not Modified
+INFO:     89.187.169.11:0 - "GET /uploads/54f1a77f-dd73-407e-97d2-c15f8c4d664e.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /salt.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /uploads/54f1a77f-dd73-407e-97d2-c15f8c4d664e.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /uploads/494ee111-ddc7-469e-aff5-2fb547853647.png HTTP/1.0" 304 Not Modified
+INFO:     89.187.169.11:0 - "GET /uploads/cover1.jpg HTTP/1.0" 304 Not Modified
+INFO:     89.187.169.11:0 - "GET /api/v1/blog/ HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /uploads/cover2.jpg HTTP/1.0" 304 Not Modified
+INFO:     89.187.169.11:0 - "GET /api/v1/products/search?q=&sort_by=newest HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /api/v1/products/categories HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /api/v1/products/categories HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /api/v1/products/search?q=&sort_by=newest HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /api/v1/products/categories HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /uploads/ac58d1a5-10cd-49e2-945b-68ec0e4178d0.png HTTP/1.0" 304 Not Modified
+INFO:     89.187.169.11:0 - "GET /podmod.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /uploads/ac58d1a5-10cd-49e2-945b-68ec0e4178d0.png HTTP/1.0" 304 Not Modified
+INFO:     89.187.169.11:0 - "GET /uploads/54f1a77f-dd73-407e-97d2-c15f8c4d664e.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /vape.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /ecig.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /nicotine.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /uploads/54f1a77f-dd73-407e-97d2-c15f8c4d664e.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /pod.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /uploads/494ee111-ddc7-469e-aff5-2fb547853647.png HTTP/1.0" 304 Not Modified
+INFO:     89.187.169.11:0 - "GET /coil.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /cartridge.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /disposable.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /juice.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "GET /salt.png HTTP/1.0" 404 Not Found
+INFO:     89.187.169.11:0 - "POST /api/v1/upload/image HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "PUT /api/v1/admin/products/1 HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "OPTIONS /api/v1/admin/products?page=1&limit=10 HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /api/v1/admin/products?page=1&limit=10 HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /uploads/7dedbc83-56df-4d58-a466-6d1de367951c.png HTTP/1.0" 200 OK
+INFO:     66.132.172.199:43220 - "GET /sitemap.xml HTTP/1.1" 200 OK
+INFO:     66.132.172.199:22454 - "GET /favicon.ico HTTP/1.1" 404 Not Found
+INFO:     66.132.172.199:12930 - "GET /sovpsg_mj5r_ HTTP/1.1" 404 Not Found
+INFO:     79.175.148.142:0 - "GET /api/v1/products/categories HTTP/1.0" 200 OK
+INFO:     79.175.148.142:0 - "GET /api/v1/products/categories HTTP/1.0" 200 OK
+INFO:     79.175.148.142:0 - "GET /api/v1/blog/ HTTP/1.0" 200 OK
+INFO:     79.175.148.142:0 - "GET /api/v1/products/search?q=&sort_by=newest HTTP/1.0" 200 OK
+INFO:     79.175.148.142:0 - "GET /api/v1/products/search?q=&sort_by=newest HTTP/1.0" 200 OK
+INFO:     79.175.148.142:0 - "GET /api/v1/products/categories HTTP/1.0" 200 OK
+INFO:     79.175.148.142:0 - "GET /ecig.png HTTP/1.0" 404 Not Found
+INFO:     79.175.148.142:0 - "GET /podmod.png HTTP/1.0" 404 Not Found
+INFO:     79.175.148.142:0 - "GET /pod.png HTTP/1.0" 404 Not Found
+INFO:     79.175.148.142:0 - "GET /vape.png HTTP/1.0" 404 Not Found
+INFO:     79.175.148.142:0 - "GET /nicotine.png HTTP/1.0" 404 Not Found
+INFO:     79.175.148.142:0 - "GET /salt.png HTTP/1.0" 404 Not Found
+INFO:     79.175.148.142:0 - "GET /juice.png HTTP/1.0" 404 Not Found
+INFO:     79.175.148.142:0 - "GET /cartridge.png HTTP/1.0" 404 Not Found
+INFO:     79.175.148.142:0 - "GET /coil.png HTTP/1.0" 404 Not Found
+INFO:     79.175.148.142:0 - "GET /disposable.png HTTP/1.0" 404 Not Found
+INFO:     79.175.148.142:0 - "GET /uploads/494ee111-ddc7-469e-aff5-2fb547853647.png HTTP/1.0" 304 Not Modified
+INFO:     79.175.148.142:0 - "GET /uploads/7dedbc83-56df-4d58-a466-6d1de367951c.png HTTP/1.0" 200 OK
+INFO:     79.175.148.142:0 - "GET /uploads/ac58d1a5-10cd-49e2-945b-68ec0e4178d0.png HTTP/1.0" 304 Not Modified
+INFO:     79.175.148.142:0 - "OPTIONS /api/v1/admin/stats HTTP/1.0" 200 OK
+INFO:     79.175.148.142:0 - "GET /api/v1/admin/stats HTTP/1.0" 200 OK
+INFO:     79.175.148.142:0 - "OPTIONS /api/v1/admin/products?page=1&limit=10 HTTP/1.0" 200 OK
+INFO:     79.175.148.142:0 - "GET /api/v1/admin/products?page=1&limit=10 HTTP/1.0" 200 OK
+INFO:     79.175.148.142:0 - "OPTIONS /api/v1/admin/categories HTTP/1.0" 200 OK
+INFO:     79.175.148.142:0 - "GET /uploads/494ee111-ddc7-469e-aff5-2fb547853647.png HTTP/1.0" 304 Not Modified
+INFO:     79.175.148.142:0 - "GET /uploads/ac58d1a5-10cd-49e2-945b-68ec0e4178d0.png HTTP/1.0" 304 Not Modified
+INFO:     79.175.148.142:0 - "GET /api/v1/admin/categories HTTP/1.0" 200 OK
+INFO:     79.175.148.142:0 - "OPTIONS /api/v1/admin/brands HTTP/1.0" 200 OK
+INFO:     79.175.148.142:0 - "GET /api/v1/admin/brands HTTP/1.0" 200 OK
+INFO:     79.175.148.142:0 - "OPTIONS /api/v1/upload/image HTTP/1.0" 200 OK
+INFO:     79.175.148.142:0 - "POST /api/v1/upload/image HTTP/1.0" 200 OK
+INFO:     79.175.148.142:0 - "GET /uploads/cover2.jpg HTTP/1.0" 200 OK
+INFO:     79.175.148.142:0 - "GET /uploads/cover1.jpg HTTP/1.0" 200 OK
+INFO:     79.175.148.142:0 - "GET /api/v1/products/categories HTTP/1.0" 200 OK
+INFO:     79.175.148.142:0 - "GET /api/v1/products/categories HTTP/1.0" 200 OK
+INFO:     79.175.148.142:0 - "GET /api/v1/products/search?q=&sort_by=newest HTTP/1.0" 200 OK
+INFO:     79.175.148.142:0 - "GET /api/v1/blog/ HTTP/1.0" 200 OK
+INFO:     79.175.148.142:0 - "GET /api/v1/products/categories HTTP/1.0" 200 OK
+INFO:     79.175.148.142:0 - "GET /api/v1/products/search?q=&sort_by=newest HTTP/1.0" 200 OK
+INFO:     79.175.148.142:0 - "GET /ecig.png HTTP/1.0" 404 Not Found
+INFO:     79.175.148.142:0 - "GET /vape.png HTTP/1.0" 404 Not Found
+INFO:     79.175.148.142:0 - "GET /podmod.png HTTP/1.0" 404 Not Found
+INFO:     79.175.148.142:0 - "GET /nicotine.png HTTP/1.0" 404 Not Found
+INFO:     79.175.148.142:0 - "GET /pod.png HTTP/1.0" 404 Not Found
+INFO:     79.175.148.142:0 - "GET /uploads/494ee111-ddc7-469e-aff5-2fb547853647.png HTTP/1.0" 200 OK
+INFO:     79.175.148.142:0 - "GET /uploads/ac58d1a5-10cd-49e2-945b-68ec0e4178d0.png HTTP/1.0" 200 OK
+INFO:     79.175.148.142:0 - "GET /uploads/7dedbc83-56df-4d58-a466-6d1de367951c.png HTTP/1.0" 304 Not Modified
+INFO:     79.175.148.142:0 - "GET /salt.png HTTP/1.0" 404 Not Found
+INFO:     79.175.148.142:0 - "GET /juice.png HTTP/1.0" 404 Not Found
+INFO:     79.175.148.142:0 - "GET /cartridge.png HTTP/1.0" 404 Not Found
+INFO:     79.175.148.142:0 - "GET /coil.png HTTP/1.0" 404 Not Found
+INFO:     79.175.148.142:0 - "GET /disposable.png HTTP/1.0" 404 Not Found
+INFO:     79.175.148.142:0 - "GET /uploads/7dedbc83-56df-4d58-a466-6d1de367951c.png HTTP/1.0" 304 Not Modified
+INFO:     79.175.148.142:0 - "GET /uploads/ac58d1a5-10cd-49e2-945b-68ec0e4178d0.png HTTP/1.0" 304 Not Modified
+INFO:     89.187.169.11:0 - "OPTIONS /api/v1/blog/admin HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /api/v1/blog/admin HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /uploads/7957dafa-2ce1-4eb2-9e42-c48d8187945a.png HTTP/1.0" 404 Not Found
+INFO:     79.175.148.142:0 - "POST /api/v1/upload/image HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "OPTIONS /api/v1/admin/stats HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "GET /api/v1/admin/stats HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "OPTIONS /api/v1/auth/request-otp HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "POST /api/v1/auth/request-otp HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "POST /api/v1/auth/request-otp HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "OPTIONS /api/v1/auth/verify-otp HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "POST /api/v1/auth/verify-otp HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "POST /api/v1/auth/request-otp HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "POST /api/v1/auth/verify-otp HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "POST /api/v1/auth/request-otp HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "POST /api/v1/auth/verify-otp HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "OPTIONS /api/v1/auth/request-otp HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "POST /api/v1/auth/request-otp HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "POST /api/v1/auth/verify-otp HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "OPTIONS /api/v1/auth/verify-otp HTTP/1.0" 200 OK
+INFO:     89.187.169.11:0 - "POST /api/v1/auth/verify-otp HTTP/1.0" 400 Bad Request
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [1335862]

