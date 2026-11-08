@@ -5,6 +5,7 @@ from functools import lru_cache
 class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     ADMIN_PHONE: Optional[str] = None
+    ADMIN_PHONES: str = "09127467261,09019244403"
     APP_NAME: str = "Venix Shop API"
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = True

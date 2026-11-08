@@ -36,9 +36,18 @@ class OTPVerifyRequest(BaseModel):
         v = v.translate(str.maketrans(arabic, english))
         return v
 
+class TokenUserResponse(BaseModel):
+    id: int
+    phone_number: str
+    customer_group: str
+    is_admin: bool
+    full_name: Optional[str] = None
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+    user: TokenUserResponse
 
 class UserResponse(BaseModel):
     id: int
